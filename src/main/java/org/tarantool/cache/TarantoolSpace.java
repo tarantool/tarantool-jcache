@@ -161,9 +161,9 @@ public class TarantoolSpace {
 
     /**
      * Execute "select" request.
-     * If keys is empty select all available tuples in this space
      * @param keys List<?> keys
      * @return List<?> as response.
+     * @throws TarantoolException if keys list is empty
      */
     public List<?> select(List<?> keys) {
       try {
@@ -174,8 +174,7 @@ public class TarantoolSpace {
     }
 
     /**
-     * Execute "select" request.
-     * If keys is empty select all available tuples in this space
+     * Select all available tuples in this space
      * @param keys List<?> keys
      * @return List<?> as response.
      */
@@ -191,9 +190,10 @@ public class TarantoolSpace {
 
     /**
      * Fetch next tuple by executing "select" request.
-     * If keys is empty fetch first available tuple in this space
-     * @param keys List<?> keys
+     * Uses Iterator.GT iterator to get next tuple.
+     * @param keys List<?> current tuple keys
      * @return List<?> as response.
+     * @throws TarantoolException if keys list is empty
      */
     public List<?> next(List<?> keys) {
       try {
@@ -210,8 +210,7 @@ public class TarantoolSpace {
     }
 
     /**
-     * Fetch next tuple by executing "select" request.
-     * If keys is empty fetch first available tuple in this space
+     * Fetch first available tuple in this space
      * @param keys List<?> keys
      * @return List<?> as response.
      */

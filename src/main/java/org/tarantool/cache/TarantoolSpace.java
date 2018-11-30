@@ -7,9 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.cache.CacheException;
-import javax.cache.configuration.Configuration;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tarantool.Iterator;
@@ -22,16 +19,6 @@ public class TarantoolSpace {
      * The {@link TarantoolSession} related to {@code cacheManager}
      */
     private final TarantoolSession session;
-
-    /**
-     * The custom {@link Configuration} obtained from {@link XmlConfiguration}
-     */
-    private final Configuration<?,?> cacheConfiguration;
-
-    /**
-     * The default {@link Configuration} obtained from {@link XmlConfiguration}
-     */
-    private final Configuration<?,?> defaultConfiguration;
 
     /**
      * The ID of the current space in Tarantool
@@ -56,7 +43,7 @@ public class TarantoolSpace {
         try {
             return session.syncOps().eval("return " + expression);
         } catch (Exception e) {
-            throw new CacheException(e);
+            throw new TarantoolCacheException(e);
         }
     }
 
@@ -64,7 +51,7 @@ public class TarantoolSpace {
         String command = "box.space." + spaceName + ".id";
         List<?> response = execute(command);
         if (response.isEmpty() || !Integer.class.isInstance(response.get(0))) {
-            throw new CacheException("Invalid response on command '" + command + "': expected integer got " + response);
+            throw new TarantoolCacheException("Invalid response on command '" + command + "': expected integer got " + response);
         }
         return (Integer) response.get(0);
     }
@@ -73,7 +60,7 @@ public class TarantoolSpace {
         final String command = "box.schema.space.create('" + spaceName + "').id";
         final List<?> response = execute(command);
         if (response.isEmpty() || !Integer.class.isInstance(response.get(0))) {
-            throw new CacheException("Invalid response on command '" + command + "': expected integer got " + response);
+            throw new TarantoolCacheException("Invalid response on command '" + command + "': expected integer got " + response);
         }
         final Integer spaceId = (Integer) response.get(0);
 
@@ -83,8 +70,8 @@ public class TarantoolSpace {
             fields.put("type", "scalar");
             session.syncOps().call("box.space." + spaceName + ":format", singletonList(fields));
         } catch (Throwable t) {
-            session.syncOps().call("box.space." + this.spaceName + ":drop");
-            throw new CacheException("Cannot format space " + this.spaceName, t);
+            this.drop();
+            throw new TarantoolCacheException("Cannot format space " + this.spaceName, t);
         }
 
         try {
@@ -93,8 +80,8 @@ public class TarantoolSpace {
             index.put("type", DEFAULT_INDEX_TYPE);
             session.syncOps().call("box.space." + spaceName + ":create_index", "primary", index);
         } catch (Throwable t) {
-            session.syncOps().call("box.space." + this.spaceName + ":drop");
-            throw new CacheException("Cannot create primary index in space " + this.spaceName, t);
+            this.drop();
+            throw new TarantoolCacheException("Cannot create primary index in space " + this.spaceName, t);
         }
 
         return spaceId;
@@ -104,9 +91,26 @@ public class TarantoolSpace {
         String command = "box.space." + spaceName + " ~= nil";
         List<?> response = execute(command);
         if (response.isEmpty() || !Boolean.class.isInstance(response.get(0))) {
-            throw new CacheException("Invalid response on command '" + command + "': expected boolean got " + response);
+            throw new TarantoolCacheException("Invalid response on command '" + command + "': expected boolean got " + response);
         }
         return (Boolean) response.get(0);
+    }
+
+    private boolean checkSpaceFormat() {
+        String command = "box.space." + spaceName + ".index";
+        List<?> response = execute(command);
+        if (!response.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            Map<String, Map<?,?>> index = (Map<String, Map<?,?>>) response.get(0);
+            Map<?,?> primary = index.get("primary");
+            if (primary != null) {
+                Object indexType = primary.get("type");
+                if (indexType != null && indexType.toString().equalsIgnoreCase(DEFAULT_INDEX_TYPE)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -124,19 +128,21 @@ public class TarantoolSpace {
         this.spaceName = cacheName.replaceAll("[^a-zA-Z0-9]", "_");
         final boolean spaceExists = checkSpaceExists();
         if (spaceExists) {
-            this.spaceId = getSpaceId();
+            final boolean spaceFormatIsCorrect = checkSpaceFormat();
+            if (spaceFormatIsCorrect) {
+                // Space format is OK, we're able to use it
+                this.spaceId = getSpaceId();
+            } else {
+                // Drops the space with incorrect format
+                this.drop();
+                // Creates a new space with appropriate format
+                this.spaceId = createSpace();
+            }
         } else {
             this.spaceId = createSpace();
         }
 
         log.info("cache initialized: spaceName={}, spaceId={}", spaceName, spaceId);
-        if (session.getSessionConfiguration() != null) {
-            cacheConfiguration = session.getSessionConfiguration().getCacheConfiguration(cacheName);
-            defaultConfiguration = session.getSessionConfiguration().getDefaultCacheConfiguration();
-        } else {
-            cacheConfiguration = null;
-            defaultConfiguration = null;
-        }
     }
 
     /**
@@ -145,18 +151,6 @@ public class TarantoolSpace {
     @Override
     public String toString() {
         return getClass().getName() + "@" + spaceName;
-    }
-
-    /**
-     * Get the vendor specific {@link Configuration}
-     * @param <K> type of keys
-     * @param <V> type of values
-     *
-     * @return Configuration<K,V>
-     */
-    @SuppressWarnings("unchecked")
-    public <K, V, C extends Configuration<K, V>> C getCacheConfiguration() {
-        return (cacheConfiguration != null) ? (C)cacheConfiguration : (C)defaultConfiguration;
     }
 
     /**
@@ -169,7 +163,7 @@ public class TarantoolSpace {
       try {
           return session.syncOps().select(spaceId, 0, keys, 0, 1, Iterator.EQ .ordinal());
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -184,7 +178,7 @@ public class TarantoolSpace {
           int limit = MAX_ROWS_PER_ITER_ALL;
           return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, limit, Iterator.ALL.ordinal());
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -205,7 +199,7 @@ public class TarantoolSpace {
            */
           return session.syncOps().select(spaceId, 0, keys, 0, 1, Iterator.GT.ordinal());
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -219,7 +213,7 @@ public class TarantoolSpace {
           /* Limit is always 1 to fetch only one tuple */
           return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, 1, Iterator.ALL.ordinal());
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -232,7 +226,7 @@ public class TarantoolSpace {
       try {
           return session.syncOps().insert(spaceId, tuple);
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -246,13 +240,12 @@ public class TarantoolSpace {
       try {
           return session.syncOps().update(spaceId, keys, ops);
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
     /**
      * Execute "update or insert" request.
-     * @param spaceId int Tarantool space.id
      * @param keys List<?> keys
      * @param defTuple List<?> tuple to insert (if not exists yet)
      * @param Object... ops operations for update (if tuple exists)
@@ -261,7 +254,7 @@ public class TarantoolSpace {
       try {
           return session.syncOps().upsert(spaceId, keys, defTuple, ops);
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -274,7 +267,7 @@ public class TarantoolSpace {
       try {
           return session.syncOps().delete(spaceId, keys);
       } catch (Exception e) {
-          throw new CacheException(e);
+          throw new TarantoolCacheException(e);
       }
     }
 
@@ -285,7 +278,7 @@ public class TarantoolSpace {
         try {
             session.syncOps().call("box.space." + this.spaceName + ":truncate");
         } catch (Exception e) {
-            throw new CacheException(e);
+            throw new TarantoolCacheException(e);
         }
     }
 
@@ -296,7 +289,7 @@ public class TarantoolSpace {
         try {
             session.syncOps().call("box.space." + this.spaceName + ":drop");
         } catch (Exception e) {
-            throw new CacheException(e);
+            throw new TarantoolCacheException(e);
         }
     }
 

@@ -23,7 +23,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import javax.cache.Cache;
+import javax.cache.Cache.Entry;
 import javax.cache.expiry.Duration;
 import javax.cache.expiry.ExpiryPolicy;
 
@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
 /**
  * @author Evgeniy Zaikin
  */
-public class TarantoolCursor<K, V> implements Cache.Entry<K, V> {
+public class TarantoolCursor<K, V> implements Entry<K, V> {
   private static final Logger log = LoggerFactory.getLogger(TarantoolCursor.class);
 
   private static enum CursorType {
@@ -106,6 +106,7 @@ public class TarantoolCursor<K, V> implements Cache.Entry<K, V> {
    * the internal container.
    *
    * @param entry to be parsed, must be List of fields
+   * @throws TarantoolCacheException if incorrect tuple was selected from space
    */
   private void parse(Object entry) {
       if (entry instanceof List) {
@@ -122,7 +123,7 @@ public class TarantoolCursor<K, V> implements Cache.Entry<K, V> {
           }
       }
 
-      throw new javax.cache.CacheException("Incorrect tuple was selected from " + space.toString());
+      throw new TarantoolCacheException("Tuple with incorrect fields was selected from " + space.toString());
   }
 
   /**

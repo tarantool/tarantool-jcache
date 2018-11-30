@@ -199,12 +199,19 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             cacheWriter = cacheWriterFactory.create();
         }
 
-        Factory<ExpiryPolicy> expiryPolicyFactory = this.configuration.getExpiryPolicyFactory();
-        internalConfiguration = space.getCacheConfiguration();
-        if (internalConfiguration != null) {
-            expiryPolicyFactory = internalConfiguration.getExpiryPolicyFactory();
+        if (session.getSessionConfiguration() != null) {
+            Configuration<?, ?> cacheConfiguration = session.getSessionConfiguration().getCacheConfiguration(cacheName);
+            Configuration<?, ?> defaultConfiguration = session.getSessionConfiguration().getDefaultCacheConfiguration();
+            internalConfiguration = getPreferedConfiguration(cacheConfiguration, defaultConfiguration);
+        } else {
+            internalConfiguration = null;
         }
-        expiryPolicy = expiryPolicyFactory.create();
+
+        if (internalConfiguration != null) {
+            expiryPolicy = internalConfiguration.getExpiryPolicyFactory().create();
+        } else {
+            expiryPolicy = this.configuration.getExpiryPolicyFactory().create();
+        }
 
         cursor = new TarantoolCursor<K, V>(space, expiryPolicy);
 
@@ -254,6 +261,24 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
      */
     protected void submit(Runnable task) {
         executorService.submit(task);
+    }
+
+    /**
+     * Gets the preferred Configuration {@link Configuration} from twos
+     * @param Configuration<?,?> all available configurations
+     * @param <K> type of keys
+     * @param <V> type of values
+     *
+     * @return Configuration<K,V> selected from all available configurations
+     */
+    @SuppressWarnings("unchecked")
+    protected <C extends Configuration<K, V>> C getPreferedConfiguration(Configuration<?,?> ... configurations) {
+        for (Configuration<?,?> configuration : configurations) {
+            if (configuration != null) {
+                return (C)configuration;
+            }
+        }
+        return null;
     }
 
     /**

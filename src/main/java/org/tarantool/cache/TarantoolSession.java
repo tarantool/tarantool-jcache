@@ -22,7 +22,6 @@ import org.tarantool.TarantoolClientConfig;
 import org.tarantool.TarantoolClientImpl;
 import org.tarantool.TarantoolClientOps;
 import org.tarantool.xml.XmlConfiguration;
-import org.tarantool.xml.exceptions.XmlConfigurationException;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -52,7 +51,7 @@ public class TarantoolSession implements Closeable {
   private static final String DEFAULT_HOST = "localhost";
   private static final int DEFAULT_PORT = 3301;
   private final TarantoolClientImpl tarantoolClient;
-  private static XmlConfiguration xmlConfiguration = null;
+  private final XmlConfiguration xmlConfiguration;
 
   private URL resolveResourcePath(URI uri, ClassLoader classLoader) {
     if (uri.getScheme().equals("classpath")) {
@@ -61,8 +60,8 @@ public class TarantoolSession implements Closeable {
     try {
       return uri.toURL();
     } catch (MalformedURLException e) {
-      // wrap MalformedURLException into CacheException
-      throw new javax.cache.CacheException(e);
+      // wrap MalformedURLException into TarantoolCacheException
+      throw new TarantoolCacheException(e);
     }
   }
 
@@ -72,8 +71,8 @@ public class TarantoolSession implements Closeable {
    * @param uri             the resource
    * @param classLoader     the classLoader will be used for loading classes
    * @throws NullPointerException if the URI and/or classLoader is null.
-   * @throws IllegalArgumentException if connection parameters obtained from XML are incorrect
-   * @throws XmlConfigurationException if anything went wrong parsing the XML
+   * @throws IllegalArgumentException if connection parameters obtained from XML are incorrect or if incorrect URI passed
+   * @throws TarantoolCacheException if anything went wrong parsing the XML
    */
   public TarantoolSession(URI uri, ClassLoader classLoader) {
     if (uri == null || classLoader == null) {
@@ -86,7 +85,11 @@ public class TarantoolSession implements Closeable {
     if (uri.getScheme() != null) {
         if (uri.getScheme().equals("file") || uri.getScheme().equals("classpath")) {
             URL url = resolveResourcePath(uri, classLoader);
-            xmlConfiguration = new XmlConfiguration(url, classLoader);
+            try {
+                xmlConfiguration = new XmlConfiguration(url, classLoader);
+            } catch (RuntimeException e) {
+                throw new TarantoolCacheException(e);
+            }
         } else if (uri.getScheme().equals("http") || uri.getScheme().equals("tarantool")) {
             /* Example: "tarantool://user:password@host:port" */
             if (uri.getHost() == null) {
@@ -105,9 +108,12 @@ public class TarantoolSession implements Closeable {
                     config.password = userInfo.substring(pos + 1);
                 }
             }
+            xmlConfiguration = null;
         } else {
-            throw new javax.cache.CacheException("Unknown scheme given with specified URI: " + uri.getScheme());
+            throw new IllegalArgumentException("Unknown scheme given with specified URI: " + uri.getScheme());
         }
+    } else {
+        xmlConfiguration = null;
     }
 
     /* If XML configuration exists and was successfully parsed,

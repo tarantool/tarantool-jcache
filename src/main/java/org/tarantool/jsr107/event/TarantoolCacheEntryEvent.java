@@ -22,7 +22,7 @@ import javax.cache.event.CacheEntryEvent;
 import javax.cache.event.EventType;
 
 /**
- * The reference implementation of the {@link CacheEntryEvent}.
+ * The implementation of the {@link CacheEntryEvent}.
  *
  * @param <K> the type of keys maintained by this cache
  * @param <V> the type of cached values

@@ -30,9 +30,12 @@ public class TarantoolSpace {
      */
     private final String spaceName;
 
+    /**
+     * The type of the index to be used in the Tarantool's spaces.
+     * Hash indexes have some problems when accessing tuple with Iterator.GT,
+     * so Tree index is most appropriate for now.
+     */
     private static final String DEFAULT_INDEX_TYPE = "tree";
-
-    private static final int MAX_ROWS_PER_ITER_ALL = 65535;
 
     /**
      * Execute and evaluate.
@@ -175,7 +178,7 @@ public class TarantoolSpace {
     public List<?> select() {
       try {
           // Adjust max size of batch per select
-          int limit = MAX_ROWS_PER_ITER_ALL;
+          int limit = Integer.MAX_VALUE;
           return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, limit, Iterator.ALL.ordinal());
       } catch (Exception e) {
           throw new TarantoolCacheException(e);

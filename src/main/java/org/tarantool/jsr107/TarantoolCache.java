@@ -23,6 +23,9 @@ import org.tarantool.cache.TarantoolSpace;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tarantool.jsr107.event.CacheEntryListenerRegistration;
+import org.tarantool.jsr107.event.CacheEventDispatcher;
+import org.tarantool.jsr107.event.TarantoolCacheEntryEvent;
 import org.tarantool.jsr107.management.MBeanServerRegistrationUtility;
 import org.tarantool.jsr107.management.TarantoolCacheMXBean;
 import org.tarantool.jsr107.management.TarantoolCacheStatisticsMXBean;
@@ -37,6 +40,8 @@ import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
 import javax.cache.configuration.Factory;
 import javax.cache.configuration.MutableConfiguration;
+import javax.cache.event.CacheEntryEvent;
+import javax.cache.event.EventType;
 import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CacheLoaderException;
@@ -58,6 +63,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -135,6 +141,18 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
      * The {@link ExpiryPolicy} for the {@link Cache}.
      */
     private final ExpiryPolicy expiryPolicy;
+
+    /**
+     * The List of {@link CacheEntryListenerRegistration} for the
+     * {@link Cache}.
+     */
+    private final CopyOnWriteArrayList<CacheEntryListenerRegistration<K,
+        V>> listenerRegistrations;
+
+    /**
+     * Event dispatcher is used for dispatching Events to all the Listeners
+     */
+    private final CacheEventDispatcher<K, V> dispatcher;
 
     /**
      * The open/closed state of the Cache.
@@ -216,10 +234,12 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         cursor = new TarantoolCursor<K, V>(space, expiryPolicy);
 
         //establish all of the listeners
+        listenerRegistrations = new CopyOnWriteArrayList<CacheEntryListenerRegistration<K, V>>();
         for (CacheEntryListenerConfiguration<K, V> listenerConfiguration :
                 this.configuration.getCacheEntryListenerConfigurations()) {
             createAndAddListener(listenerConfiguration);
         }
+        dispatcher = new CacheEventDispatcher<K, V>(listenerRegistrations);
 
         cacheMXBean = new TarantoolCacheMXBean<>(this);
         statistics = new TarantoolCacheStatisticsMXBean();
@@ -244,14 +264,22 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         }
     }
 
-    //todo concurrency
     private void createAndAddListener(CacheEntryListenerConfiguration<K, V> listenerConfiguration) {
-
+        CacheEntryListenerRegistration<K, V> registration = new
+                CacheEntryListenerRegistration<K, V>(listenerConfiguration);
+            listenerRegistrations.add(registration);
     }
 
-    //todo concurrency
     private void removeListener(CacheEntryListenerConfiguration<K, V> cacheEntryListenerConfiguration) {
-
+        if (cacheEntryListenerConfiguration == null) {
+            throw new NullPointerException("CacheEntryListenerConfiguration can't be null");
+        }
+        for (CacheEntryListenerRegistration<K, V> listenerRegistration : listenerRegistrations) {
+            if (cacheEntryListenerConfiguration.equals(listenerRegistration.getConfiguration())) {
+              listenerRegistrations.remove(listenerRegistration);
+              configuration.removeCacheEntryListenerConfiguration(cacheEntryListenerConfiguration);
+            }
+        }
     }
 
     /**
@@ -339,6 +367,18 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                 } catch (IOException e) {
                     log.error("Exception occurred during closing ExpiryPolicy", e);
                 }
+            }
+
+            //close the configured CacheEntryListeners
+            for (CacheEntryListenerRegistration<K, V> registration : listenerRegistrations) {
+              if (registration.getCacheEntryListener() instanceof Closeable) {
+                try {
+                  ((Closeable) registration.getCacheEntryListener()).close();
+                } catch (IOException e) {
+                  log.error("Exception occurred during closing listener " +
+                       registration.getCacheEntryListener().getClass(), e);
+                }
+              }
             }
 
             //attempt to shutdown (and wait for the cache to shutdown)
@@ -522,12 +562,15 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         checkTypesAgainstConfiguredTypes(key, value);
 
         long now = System.currentTimeMillis();
-        //todo: writes should not happen on a new expired entry
+        //TODO: writes should not happen on a new expired entry
         writeCacheEntry(key, value);
         if (cursor.locate(key)) {
+            V oldValue = cursor.getValue();
             cursor.update(value, now);
+            dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, oldValue, EventType.UPDATED));
             putCount++;
         } else if (cursor.insert(key, value, now)) {
+            dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, EventType.CREATED));
             putCount++;
         }
         if (statisticsEnabled() && putCount > 0) {
@@ -571,18 +614,25 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         try {
 
             if (cursor.locate(key)) {
+                CacheEntryEvent<K, V> event;
                 if (!cursor.isExpiredAt(now)) {
                     result = cursor.getValue();
+                    event = new TarantoolCacheEntryEvent<K, V>(this, key, value, result, EventType.UPDATED);
+                } else {
+                    event = new TarantoolCacheEntryEvent<K, V>(this, key, value, EventType.UPDATED);
                 }
                 writeCacheEntry(key, value);
                 cursor.update(value, now);
                 putCount++;
+
+                dispatcher.dispatch(event);
 
             } else {
 
                 writeCacheEntry(key, value);
                 if (cursor.insert(key, value, now)) {
                     putCount++;
+                    dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, EventType.CREATED));
                 }
             }
 
@@ -683,14 +733,17 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                     // do not count loadAll calls as puts. useWriteThrough is false when
                     // called from loadAll.
                     if (cursor.locate(key)) {
+                        V oldValue = cursor.getValue();
                         cursor.update(value, now);
                         if (useWriteThrough) {
                             putCount++;
                         }
+                        dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, oldValue, EventType.UPDATED));
                     } else if (cursor.insert(key, value, now)) {
                         if (useWriteThrough) {
                             putCount++;
                         }
+                        dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, EventType.CREATED));
                     }
                 } else {
                     // this method called from loadAll when useWriteThrough is false. do
@@ -700,6 +753,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                         if (useWriteThrough) {
                             putCount++;
                         }
+                        dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, EventType.CREATED));
                     }
                 }
             }
@@ -776,6 +830,10 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         long now = System.currentTimeMillis();
         deleteCacheEntry(key);
         boolean result = cursor.delete(key) && !cursor.isExpiredAt(now);
+        if (result) {
+            V value = cursor.getValue();
+            dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, value, EventType.REMOVED));
+        }
         if (result && statisticsEnabled()) {
             statistics.increaseCacheRemovals(1);
             statistics.addRemoveTimeNano(System.nanoTime() - start);
@@ -809,6 +867,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             if (oldValue.equals(cursor.getValue())) {
                 deleteCacheEntry(key);
                 result = cursor.delete();
+
+                dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, oldValue, oldValue, EventType.REMOVED));
             } else {
                 cursor.access(now);
                 result = false;
@@ -846,6 +906,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         V result = null;
         if (cursor.delete(key)) {
             result = cursor.isExpiredAt(now) ? null : cursor.getValue();
+            dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, result, result, EventType.REMOVED));
         }
         if (statisticsEnabled()) {
             statistics.addGetTimeNano(System.nanoTime() - start);
@@ -891,6 +952,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                     cursor.update(newValue, now);
                     result = true;
 
+                    dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, newValue, oldValue, EventType.UPDATED));
                 } else {
 
                     cursor.access(now);
@@ -933,9 +995,11 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         boolean result = false;
         try {
             if (cursor.locate(key) && !cursor.isExpiredAt(now)) {
+                V oldValue = cursor.getValue();
                 writeCacheEntry(key, value);
                 cursor.update(value, now);
                 result = true;
+                dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, oldValue, EventType.UPDATED));
             }
         } finally {
             cursor.close();
@@ -972,9 +1036,11 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         V result = null;
         try {
             if (cursor.locate(key) && !cursor.isExpiredAt(now)) {
-                result = cursor.getValue();
+                V oldValue = cursor.getValue();
+                result = oldValue;
                 writeCacheEntry(key, value);
                 cursor.update(value, now);
+                dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, value, oldValue, EventType.UPDATED));
             }
         } finally {
             cursor.close();
@@ -1189,18 +1255,23 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                             statistics.increaseCachePuts(1);
                             statistics.addPutTimeNano(System.nanoTime() - start);
                         }
+                        dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, entry.getValue(), EventType.CREATED));
                     }
 
                     break;
 
                 case LOAD:
-                    cursor.insert(key, entry.getValue(), now);
+                    if (cursor.insert(key, entry.getValue(), now)) {
+                        dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, entry.getValue(), EventType.CREATED));
+                    }
 
                     break;
 
                 case UPDATE:
                     writeCacheEntry(key, entry.getValue());
+                    V oldValue = cursor.getValue();
                     cursor.update(entry.getValue(), now);
+                    dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, entry.getValue(), oldValue, EventType.UPDATED));
 
                     if (statisticsEnabled()) {
                         statistics.increaseCachePuts(1);
@@ -1212,6 +1283,9 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                 case REMOVE:
                     deleteCacheEntry(key);
                     cursor.delete(key);
+
+                    oldValue = cursor.getValue();
+                    dispatcher.dispatch(new TarantoolCacheEntryEvent<K, V>(this, key, oldValue, oldValue, EventType.REMOVED));
 
                     if (statisticsEnabled()) {
                         statistics.increaseCacheRemovals(1);
@@ -1348,7 +1422,6 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     @Override
     public void deregisterCacheEntryListener(CacheEntryListenerConfiguration<K,
             V> cacheEntryListenerConfiguration) {
-        configuration.removeCacheEntryListenerConfiguration(cacheEntryListenerConfiguration);
         removeListener(cacheEntryListenerConfiguration);
     }
 
@@ -1558,6 +1631,11 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             //such side-effects
             if (cursor.delete()) {
                 cacheRemovals++;
+                K oldKey = cursor.getKey();
+                V oldValue = cursor.getValue();
+                CacheEntryEvent<K, V> event = new TarantoolCacheEntryEvent<K, V>(TarantoolCache.this,
+                                                oldKey, oldValue, oldValue, EventType.REMOVED);
+                dispatcher.dispatch(event);
             }
           } finally {
             if (statisticsEnabled() && cacheRemovals > 0) {

@@ -122,13 +122,14 @@ public class TarantoolSession implements Closeable {
      * Keep configuration of that connection which resolve operation was succeeded
      */
     if (xmlConfiguration != null) {
+      InetAddress resolvedInetAddress = null;
       // Get map of connections with unresolved InetSocketAddress
       Map<InetSocketAddress, TarantoolClientConfig> connections = xmlConfiguration.getAvailableConnections();
       for (Map.Entry<InetSocketAddress, TarantoolClientConfig> entry : connections.entrySet()) {
         InetSocketAddress unresolvedSocketAddress = entry.getKey();
         // Try to resolve, if fails - iterate next entry
         try {
-            InetAddress.getByName(unresolvedSocketAddress.getHostName());
+            resolvedInetAddress = InetAddress.getByName(unresolvedSocketAddress.getHostName());
         } catch(UnknownHostException e) {
             continue;
         }
@@ -139,6 +140,10 @@ public class TarantoolSession implements Closeable {
         port = unresolvedSocketAddress.getPort();
         // Exit from this loop
         break;
+      }
+
+      if (resolvedInetAddress == null) {
+        throw new TarantoolCacheException("Cannot resolve any inet address obtained from XML");
       }
     }
     // Create and resolve InetSocketAddress here

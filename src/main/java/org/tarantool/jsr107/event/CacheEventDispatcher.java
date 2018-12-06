@@ -18,11 +18,10 @@ package org.tarantool.jsr107.event;
 
 import static java.util.Collections.singletonList;
 
-
+import javax.cache.Cache;
 import javax.cache.event.CacheEntryEvent;
 import javax.cache.event.CacheEntryEventFilter;
 import javax.cache.event.CacheEntryExpiredListener;
-import javax.cache.Cache;
 import javax.cache.event.CacheEntryCreatedListener;
 import javax.cache.event.CacheEntryRemovedListener;
 import javax.cache.event.CacheEntryUpdatedListener;
@@ -30,6 +29,9 @@ import javax.cache.event.CacheEntryListener;
 import javax.cache.event.CacheEntryListenerException;
 
 import javax.cache.event.EventType;
+
+import org.tarantool.cache.TarantoolEventHandler;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,21 +44,36 @@ import java.util.List;
  * @author Brian Oliver
  * @author Evgeniy Zaikin
  */
-public class CacheEventDispatcher<K, V> {
+public class CacheEventDispatcher<K, V> implements TarantoolEventHandler<K, V> {
 
   /**
    * The List of {@link CacheEntryListenerRegistration} for the
    * {@link Cache}.
    */
-  private final Iterable<CacheEntryListenerRegistration<K, V>> listenerRegistrations;
+  private final List<CacheEntryListenerRegistration<K, V>> listenerRegistrations;
+
+  /**
+   * The cache on which the Event initially occurred.
+   */
+  private final transient Cache<K, V> source;
 
   /**
    * Constructs an {@link CacheEventDispatcher}.
+   * @param source the cache that originated the event
    * @param registrations the {@link CacheEntryListenerRegistration}s defining
    *    {@link CacheEntryListener}s to which to dispatch events
    */
-  public CacheEventDispatcher(Iterable<CacheEntryListenerRegistration<K, V>> registrations) {
+  public CacheEventDispatcher(Cache<K, V> source, List<CacheEntryListenerRegistration<K, V>> registrations) {
+      this.source = source;
       this.listenerRegistrations = registrations;
+  }
+
+  /**
+   * Check if list of listeners is not empty
+   * @return true    if listenerRegistrations is not empty
+   */
+  public boolean hasListeners() {
+      return !listenerRegistrations.isEmpty();
   }
 
   /**
@@ -149,4 +166,31 @@ public class CacheEventDispatcher<K, V> {
     return dispatchedEvents;
   }
 
+  @Override
+  public void onExpired(K key, V newValue, V oldValue) {
+      if (hasListeners()) {
+          dispatch(new TarantoolCacheEntryEvent<K, V>(source, key, newValue, oldValue, EventType.EXPIRED));
+      }
+  }
+
+  @Override
+  public void onCreated(K key, V newValue, V oldValue) {
+      if (hasListeners()) {
+          dispatch(new TarantoolCacheEntryEvent<K, V>(source, key, newValue, EventType.CREATED));
+      }
+  }
+
+  @Override
+  public void onUpdated(K key, V newValue, V oldValue) {
+      if (hasListeners()) {
+          dispatch(new TarantoolCacheEntryEvent<K, V>(source, key, newValue, oldValue, EventType.UPDATED));
+      }
+  }
+
+  @Override
+  public void onRemoved(K key, V newValue, V oldValue) {
+      if (hasListeners()) {
+          dispatch(new TarantoolCacheEntryEvent<K, V>(source, key, newValue, oldValue, EventType.REMOVED));
+      }
+  }
 }

@@ -58,6 +58,11 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
   private final ExpiryPolicy expiryPolicy;
 
   /**
+   * The {@link TarantoolEventHandler} for create, update, remove, expire events.
+   */
+  private final TarantoolEventHandler<K, V> eventHandler;
+
+  /**
    * Current tuple container, consist of key, value, expiryTime
    */
   private final List<Object> tuple;
@@ -131,11 +136,16 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
    * and with {@link ExpiryPolicy}
    * @param space {@link TarantoolSpace} to be used with {@link TarantoolCursor}
    * @param expiryPolicy used for obtaining Expiration Duration for Create, Update, Access
+   * @param eventHandler {@link TarantoolEventHandler} for create, update, remove, expire events.
    */
-  public TarantoolCursor(TarantoolSpace space, ExpiryPolicy expiryPolicy) {
+  public TarantoolCursor(TarantoolSpace space, ExpiryPolicy expiryPolicy, TarantoolEventHandler<K, V> eventHandler) {
+      if (space == null || expiryPolicy == null || eventHandler == null ) {
+          throw new NullPointerException();
+      }
       this.space = space;
       this.expiryPolicy = expiryPolicy;
-      tuple = Arrays.asList(null, null, null);
+      this.eventHandler = eventHandler;
+      this.tuple = Arrays.asList(null, null, null);
       updateValueOperation = Arrays.asList("=", 1, null);
       updateExpiryOperation = Arrays.asList("=", 2, null);
   }
@@ -250,6 +260,9 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
           // Change cursor type to forbid attempt to remove tuple again
           cursorType = CursorType.CLIENT;
           parse(iterator.next());
+          V oldValue = getValue();
+          //TODO: check if entry was expired, and if it was - call onExpired(...) instead
+          eventHandler.onRemoved(key, oldValue, oldValue);
           return true;
       }
       cursorType = CursorType.UNDEFINED;
@@ -304,6 +317,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
 
     space.insert(tuple);
     cursorType = CursorType.SERVER;
+    eventHandler.onCreated(key, value, value);
     return true;
   }
 
@@ -421,6 +435,9 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
 
     updateValueOperation.set(2, newValue);
 
+    K key = getKey();
+    V oldValue = getValue();
+
     if (duration != null) {
         long expiryTime = duration.getAdjustedTime(modificationTime);
         // set new calculated expiryTime
@@ -428,13 +445,15 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
         // And check whether Tuple with new expiryTime becomes expired
         // and if it is, we must delete expired tuple right here
         if (!isExpiredAt(modificationTime)) {
-            space.update(singletonList(getKey()), updateValueOperation, updateExpiryOperation);
+            space.update(singletonList(key), updateValueOperation, updateExpiryOperation);
+            eventHandler.onUpdated(key, newValue, oldValue);
         } else {
             delete();
         }
     } else {
         //leave the expiry time untouched when duration is undefined
         space.update(singletonList(getKey()), updateValueOperation);
+        eventHandler.onUpdated(key, newValue, oldValue);
     }
   }
 

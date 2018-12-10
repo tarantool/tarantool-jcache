@@ -1,6 +1,5 @@
 /**
- *  Copyright 2011-2013 Terracotta, Inc.
- *  Copyright 2011-2013 Oracle America Incorporated
+ *  Copyright 2018 Evgeniy Zaikin
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,7 +17,6 @@ package org.tarantool.cache;
 
 import static java.util.Collections.singletonList;
 
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -33,7 +31,7 @@ import org.slf4j.LoggerFactory;
 /**
  * @author Evgeniy Zaikin
  */
-public class TarantoolCursor<K, V> implements Entry<K, V> {
+public class TarantoolCursor<K, V> {
   private static final Logger log = LoggerFactory.getLogger(TarantoolCursor.class);
 
   private static enum CursorType {
@@ -50,7 +48,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
   /**
    * The {@link TarantoolSpace} is Space representation of this cache
    */
-  private final TarantoolSpace space;
+  private final TarantoolSpace<K, V> space;
 
   /**
    * The {@link ExpiryPolicy} for the {@link Cache}.
@@ -65,17 +63,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
   /**
    * Current tuple container, consist of key, value, expiryTime
    */
-  private final List<Object> tuple;
-
-  /**
-   * This list holds an Update operation for value field, looks like ("=", 1, value)
-   */
-  private final List<Object> updateValueOperation;
-
-  /**
-   * This list holds an Update operation for expiryTime field, looks like ("=", 2, expiryTime)
-   */
-  private final List<Object> updateExpiryOperation;
+  private final TarantoolTuple<K, V> tuple;
 
   /**
    * The default Duration to use when a Duration can't be determined.
@@ -87,67 +75,21 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
   }
 
   /**
-   * Invalidate all the fields.
-   */
-  private void invalidate() {
-      tuple.set(0, null);
-      tuple.set(1, null);
-      tuple.set(2, null);
-  }
-
-  /**
-   * Sets the time (since the Epoch) in milliseconds when the tuple
-   * associated with this value should be considered expired.
-   *
-   * @param expiryTime time in milliseconds (since the Epoch)
-   */
-  private void setExpiryTime(long expiryTime) {
-      tuple.set(2, expiryTime);
-      updateExpiryOperation.set(2, expiryTime);
-  }
-
-  /**
-   * Parses given entry (tuple) and puts fields value to
-   * the internal container.
-   *
-   * @param entry to be parsed, must be List of fields
-   * @throws TarantoolCacheException if incorrect tuple was selected from space
-   */
-  private void parse(Object entry) {
-      if (entry instanceof List) {
-          List<?> fields = (List<?>) entry;
-          /* Check here field count, it must be 3 (key, value, expiryTime) */
-          if (fields.size() == 3) {
-              tuple.set(0, fields.get(0));
-              tuple.set(1, fields.get(1));
-              tuple.set(2, fields.get(2));
-              return;
-          } else if (fields.size() > 0) {
-              /* Delete tuple from Tarantool in case tuple is corrupted */
-              //space.delete(singletonList(fields.get(0)));
-          }
-      }
-
-      throw new TarantoolCacheException("Tuple with incorrect fields was selected from " + space.toString());
-  }
-
-  /**
    * Constructs an {@link TarantoolCursor} and bind it with an existing {@link TarantoolSpace},
    * and with {@link ExpiryPolicy}
    * @param space {@link TarantoolSpace} to be used with {@link TarantoolCursor}
    * @param expiryPolicy used for obtaining Expiration Duration for Create, Update, Access
    * @param eventHandler {@link TarantoolEventHandler} for create, update, remove, expire events.
+   * @throws NullPointerException if a given space is null eventHandler is null
    */
-  public TarantoolCursor(TarantoolSpace space, ExpiryPolicy expiryPolicy, TarantoolEventHandler<K, V> eventHandler) {
-      if (space == null || expiryPolicy == null || eventHandler == null ) {
+  public TarantoolCursor(TarantoolSpace<K, V> space, ExpiryPolicy expiryPolicy, TarantoolEventHandler<K, V> eventHandler) {
+      if (space == null || eventHandler == null) {
           throw new NullPointerException();
       }
       this.space = space;
       this.expiryPolicy = expiryPolicy;
+      this.tuple = new TarantoolTuple<K, V>(space);
       this.eventHandler = eventHandler;
-      this.tuple = Arrays.asList(null, null, null);
-      updateValueOperation = Arrays.asList("=", 1, null);
-      updateExpiryOperation = Arrays.asList("=", 2, null);
   }
 
   /**
@@ -163,7 +105,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
       final Iterator<?> iterator = space.select(singletonList(key)).iterator();
       if (iterator.hasNext()) {
           cursorType = CursorType.SERVER;
-          parse(iterator.next());
+          tuple.assign((List<?>) iterator.next());
           return true;
       }
       cursorType = CursorType.UNDEFINED;
@@ -176,8 +118,8 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
    *
    * @param now      the time the iterator will use to test for expiry
    */
-  public Iterator<TarantoolCursor<K, V>> iterator(long now) {
-      Iterator<TarantoolCursor<K, V>> iterator = new Iterator<TarantoolCursor<K, V>>() {
+  public Iterator<Entry<K, V>> iterator(long now) {
+      Iterator<Entry<K, V>> iterator = new Iterator<Entry<K, V>>() {
           private Iterator<?> iterator = space.first().iterator();
 
           @Override
@@ -186,18 +128,18 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
           }
 
           @Override
-          public TarantoolCursor<K, V> next() {
+          public Entry<K, V> next() {
             if (iterator.hasNext()) {
               // It is still current tuple, parse it
-              parse(iterator.next());
+              tuple.assign((List<?>) iterator.next());
               // Set cursor type to CursorType.SERVER
               cursorType = CursorType.SERVER;
               // Update tuple access time
               access(now);
               // Fetch next tuple for the future, do not parse it now
-              iterator = space.next(singletonList(getKey())).iterator();
-              // Return current parsed cursor
-              return TarantoolCursor.this;
+              iterator = space.next(singletonList(tuple.getKey())).iterator();
+              // Return current parsed tuple
+              return tuple;
             } else {
               throw new NoSuchElementException();
             }
@@ -215,7 +157,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
 
       // Set cursor type to CursorType.UNDEFINED, until progress to the first entry
       cursorType = CursorType.UNDEFINED;
-      invalidate();
+      tuple.invalidate();
       return iterator;
   }
 
@@ -225,10 +167,10 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
    * Cursor is opening in client mode ({@code CursorType.CLIENT}).
    * Note: only ReadOnly mode is available, remove() is not supported.
    */
-  public Iterator<TarantoolCursor<K, V>> open() {
+  public Iterator<TarantoolTuple<K, V>> open() {
       final Iterator<?> iterator = space.select().iterator();
       cursorType = CursorType.CLIENT;
-      return new Iterator<TarantoolCursor<K, V>>() {
+      return new Iterator<TarantoolTuple<K, V>>() {
 
           @Override
           public boolean hasNext() {
@@ -236,9 +178,9 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
           }
 
           @Override
-          public TarantoolCursor<K, V> next() {
-            parse(iterator.next());
-            return TarantoolCursor.this;
+          public TarantoolTuple<K, V> next() {
+            tuple.assign((List<?>) iterator.next());
+            return tuple;
           }
       };
   }
@@ -259,8 +201,8 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
       if (iterator.hasNext()) {
           // Change cursor type to forbid attempt to remove tuple again
           cursorType = CursorType.CLIENT;
-          parse(iterator.next());
-          V oldValue = getValue();
+          tuple.assign((List<?>) iterator.next());
+          V oldValue = tuple.getValue();
           //TODO: check if entry was expired, and if it was - call onExpired(...) instead
           eventHandler.onRemoved(key, oldValue, oldValue);
           return true;
@@ -282,7 +224,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
       if (cursorType != CursorType.SERVER) {
           throw new IllegalStateException("Cursor is not opened in Server Mode");
       }
-      return delete(getKey());
+      return delete(tuple.getKey());
   }
 
   /**
@@ -311,9 +253,9 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
         return false;
     }
 
-    tuple.set(0, key);
-    tuple.set(1, value);
-    tuple.set(2, expiryTime);
+    tuple.setKey(key);
+    tuple.setValue(value);
+    tuple.setExpiryTime(expiryTime);
 
     space.insert(tuple);
     cursorType = CursorType.SERVER;
@@ -342,51 +284,17 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
     if (cursorType == CursorType.UNDEFINED) {
       throw new IllegalStateException("Cursor is not opened");
     }
-    long expiryTime = Long.class.cast(tuple.get(2));
+    long expiryTime = tuple.getExpiryTime();
     return expiryTime > -1 && expiryTime <= now;
   }
 
   /**
-   * {@inheritDoc}
+   * Gets the value (without updating the access time).
+   *
+   * @return the value
    */
-  @Override
-  @SuppressWarnings("unchecked")
-  public K getKey() {
-    return (K)tuple.get(0);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  @SuppressWarnings("unchecked")
   public V getValue() {
-    //Gets the value (without updating the access time).
-    return (V)tuple.get(1);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  @SuppressWarnings("unchecked")
-  public <T> T unwrap(Class<T> clazz) {
-    if (clazz != null && clazz.isInstance(this)) {
-      return (T) this;
-    } else if (clazz == org.tarantool.jsr107.CacheEntry.class) {
-      org.tarantool.jsr107.CacheEntry<?,?> e = new org.tarantool.jsr107.CacheEntry<K,V>(getKey(), getValue());
-      return (T) e;
-    } else {
-      throw new IllegalArgumentException("Class " + clazz + " is unknown to this implementation");
-    }
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public int hashCode() {
-    return getKey().hashCode();
+      return tuple.getValue();
   }
 
   /**
@@ -398,7 +306,7 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
    */
   public V fetch(long accessTime) {
     access(accessTime);
-    return getValue();
+    return tuple.getValue();
   }
 
   /**
@@ -433,26 +341,26 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
         }
     }
 
-    updateValueOperation.set(2, newValue);
+    tuple.setValue(newValue);
 
-    K key = getKey();
-    V oldValue = getValue();
+    K key = tuple.getKey();
+    V oldValue = tuple.getValue();
 
     if (duration != null) {
         long expiryTime = duration.getAdjustedTime(modificationTime);
         // set new calculated expiryTime
-        setExpiryTime(expiryTime);
+        tuple.setExpiryTime(expiryTime);
         // And check whether Tuple with new expiryTime becomes expired
         // and if it is, we must delete expired tuple right here
         if (!isExpiredAt(modificationTime)) {
-            space.update(singletonList(key), updateValueOperation, updateExpiryOperation);
+            tuple.update();
             eventHandler.onUpdated(key, newValue, oldValue);
         } else {
             delete();
         }
     } else {
         //leave the expiry time untouched when duration is undefined
-        space.update(singletonList(getKey()), updateValueOperation);
+        tuple.updateValue();
         eventHandler.onUpdated(key, newValue, oldValue);
     }
   }
@@ -471,11 +379,11 @@ public class TarantoolCursor<K, V> implements Entry<K, V> {
         if (duration != null) {
             long expiryTime = duration.getAdjustedTime(accessTime);
             // set new calculated expiryTime for access
-            setExpiryTime(expiryTime);
+            tuple.setExpiryTime(expiryTime);
             // And check whether Tuple with new expiryTime becomes expired
             // and if it is, we must delete expired tuple right here
             if (!isExpiredAt(accessTime)) {
-                space.update(singletonList(getKey()), updateExpiryOperation);
+                tuple.updateExpiry();
             } else {
                 delete();
             }

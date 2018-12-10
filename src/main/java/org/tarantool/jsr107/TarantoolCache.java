@@ -20,7 +20,7 @@ package org.tarantool.jsr107;
 import org.tarantool.cache.TarantoolCursor;
 import org.tarantool.cache.TarantoolSession;
 import org.tarantool.cache.TarantoolSpace;
-
+import org.tarantool.cache.TarantoolTuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tarantool.jsr107.event.CacheEntryListenerRegistration;
@@ -100,7 +100,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     /**
      * The {@link TarantoolSpace} is Space representation of this cache
      */
-    private final TarantoolSpace space;
+    private final TarantoolSpace<K, V> space;
 
     /**
      * The {@link TarantoolCursor} represents abstract cursor for Tarantool operations on space
@@ -186,7 +186,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
         this.cacheManager = cacheManager;
         this.cacheName = cacheName;
-        this.space = new TarantoolSpace(session, cacheName);
+        this.space = new TarantoolSpace<K, V>(session, cacheName);
 
         //we make a copy of the configuration here so that the provided one
         //may be changed and or used independently for other caches.  we do this
@@ -1106,21 +1106,15 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
         try {
             boolean isWriteThrough = configuration.isWriteThrough() && cacheWriter != null;
-            Iterator<TarantoolCursor<K, V>> iterator = cursor.open();
-            try {
-                while (iterator.hasNext()) {
-                    TarantoolCursor<K, V> next = iterator.next();
-                    if (next.isExpiredAt(now)) {
-                        allExpiredKeys.add(next.getKey());
-                    } else {
-                        allNonExpiredKeys.add(next.getKey());
-                    }
-                    if (isWriteThrough) {
-                        keysToDelete.add(next.getKey());
-                    }
+            for (TarantoolTuple<K, V> tuple : space) {
+                if (tuple.isExpiredAt(now)) {
+                    allExpiredKeys.add(tuple.getKey());
+                } else {
+                    allNonExpiredKeys.add(tuple.getKey());
                 }
-            } finally {
-                cursor.close();
+                if (isWriteThrough) {
+                    keysToDelete.add(tuple.getKey());
+                }
             }
 
             //delete the entries (when there are some)
@@ -1530,20 +1524,14 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     private final class EntryIterator implements Iterator<Entry<K, V>> {
 
       /**
-       * The {@link TarantoolCursor}.
+       * The {@link TarantoolTuple}.
        */
-      private final TarantoolCursor<K, V> cursor;
+      private Entry<K, V> nextEntry;
 
       /**
        * The internal iterator got from {@link TarantoolCursor}.
        */
-      private final Iterator<TarantoolCursor<K, V>> iterator;
-
-      /**
-       * The time the iteration commenced.  We use this to determine what
-       * Cache Entries in the underlying iterator are expired.
-       */
-      private final long now;
+      private final Iterator<Entry<K, V>> iterator;
 
       /**
        * Constructs an {@link EntryIterator}.
@@ -1551,9 +1539,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
        * @param now      the time the iterator will use to test for expiry
        */
       private EntryIterator(long now) {
-        this.cursor = new TarantoolCursor<>(space, expiryPolicy, eventDispatcher);
-        this.now = now;
-        this.iterator = cursor.iterator(this.now);
+        this.iterator = new TarantoolCursor<>(space, expiryPolicy, eventDispatcher).iterator(now);
+        this.nextEntry = null;
       }
 
       /**
@@ -1571,12 +1558,12 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
       public Entry<K, V> next() {
         if (iterator.hasNext()) {
           long start = statisticsEnabled() ? System.nanoTime() : 0;
-          Entry<K, V> result = iterator.next();
+          nextEntry = iterator.next();
           if (statisticsEnabled()) {
             statistics.increaseCacheHits(1);
             statistics.addGetTimeNano(System.nanoTime() - start);
           }
-          return result;
+          return nextEntry;
         } else {
           throw new NoSuchElementException();
         }
@@ -1588,12 +1575,12 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
       @Override
       public void remove() {
         int cacheRemovals = 0;
-        if (!cursor.isLocated()) {
+        if (nextEntry == null) {
           throw new IllegalStateException("Must progress to the next entry to remove");
         } else {
           long start = statisticsEnabled() ? System.nanoTime() : 0;
           try {
-            deleteCacheEntry(cursor.getKey());
+            deleteCacheEntry(nextEntry.getKey());
 
             //NOTE: there is the possibility here that the entry the application
             // retrieved
@@ -1602,9 +1589,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
             //we simply don't care here as multiple-threads are ok to remove and see
             //such side-effects
-            if (cursor.delete()) {
-              cacheRemovals++;
-            }
+            iterator.remove();
+            cacheRemovals++;
           } finally {
             if (statisticsEnabled() && cacheRemovals > 0) {
               statistics.increaseCacheRemovals(cacheRemovals);

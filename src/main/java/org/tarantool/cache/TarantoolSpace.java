@@ -1,17 +1,33 @@
+/**
+ *  Copyright 2018 Evgeniy Zaikin
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
 package org.tarantool.cache;
 
 import static java.util.Collections.singletonList;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tarantool.Iterator;
+import org.tarantool.TarantoolException;
 
-public class TarantoolSpace {
+public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     private static final Logger log = LoggerFactory.getLogger(TarantoolSpace.class);
 
@@ -116,6 +132,20 @@ public class TarantoolSpace {
         return false;
     }
 
+    private void setSpaceTrigger(String triggerType, String triggerFunc) {
+        String function = "box.space." + spaceName + ":" + triggerType;
+        try {
+            try {
+                session.syncOps().call(function);
+            } catch (TarantoolException e) {
+                return;
+            }
+            session.syncOps().eval(function + "(" + triggerFunc + ")");
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
+    }
+
     /**
      * Constructs an Space representation.
      *
@@ -145,6 +175,20 @@ public class TarantoolSpace {
             this.spaceId = createSpace();
         }
 
+        setSpaceTrigger("before_replace",
+                "function (old,new)\n" +
+                "   if old ~= nil and old[4] ~= nil and\n" +
+                "   old[5] ~= box.session.id() and\n" +
+                "   box.session.exists(old[5]) then\n" +
+                "       -- the row is locked by other active session, cancel update\n" +
+                "       return old\n" +
+                "   end\n" +
+                "   if new ~= nil and new[4] ~= nil then\n" +
+                "       -- this is a lock request, append session id\n" +
+                "       return box.tuple.new({new[1], new[2], new[3], new[4], box.session.id()})" +
+                "   end\n" +
+                "end");
+
         log.info("cache initialized: spaceName={}, spaceId={}", spaceName, spaceId);
     }
 
@@ -164,7 +208,8 @@ public class TarantoolSpace {
      */
     public List<?> select(List<?> keys) {
       try {
-          return session.syncOps().select(spaceId, 0, keys, 0, 1, Iterator.EQ .ordinal());
+          int iter = org.tarantool.Iterator.EQ.getValue();
+          return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
       } catch (Exception e) {
           throw new TarantoolCacheException(e);
       }
@@ -177,9 +222,10 @@ public class TarantoolSpace {
      */
     public List<?> select() {
       try {
+          int iter = org.tarantool.Iterator.ALL.getValue();
           // Adjust max size of batch per select
           int limit = Integer.MAX_VALUE;
-          return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, limit, Iterator.ALL.ordinal());
+          return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, limit, iter);
       } catch (Exception e) {
           throw new TarantoolCacheException(e);
       }
@@ -200,7 +246,8 @@ public class TarantoolSpace {
            * but not every index (HASH, TREE, ...) supports these types.
            * See https://tarantool.io/en/doc/2.0/book/box/data_model/
            */
-          return session.syncOps().select(spaceId, 0, keys, 0, 1, Iterator.GT.ordinal());
+          int iter = org.tarantool.Iterator.GT.getValue();
+          return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
       } catch (Exception e) {
           throw new TarantoolCacheException(e);
       }
@@ -213,8 +260,9 @@ public class TarantoolSpace {
      */
     public List<?> first() {
       try {
+          int iter = org.tarantool.Iterator.ALL.getValue();
           /* Limit is always 1 to fetch only one tuple */
-          return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, 1, Iterator.ALL.ordinal());
+          return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, 1, iter);
       } catch (Exception e) {
           throw new TarantoolCacheException(e);
       }
@@ -294,6 +342,18 @@ public class TarantoolSpace {
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Iterator<TarantoolTuple<K, V>> iterator() {
+        // Create dummy event listener
+        TarantoolEventHandler<K, V> eventHandler = new TarantoolEventHandler<K, V>() {
+        };
+        // Construct TarantoolCursor, open Iterator (client-side cursor with read-only mode)
+        return new TarantoolCursor<K,V>(this, null, eventHandler).open();
     }
 
 }

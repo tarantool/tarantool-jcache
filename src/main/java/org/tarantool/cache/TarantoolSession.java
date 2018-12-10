@@ -1,6 +1,5 @@
 /**
- *  Copyright 2011-2013 Terracotta, Inc.
- *  Copyright 2011-2013 Oracle America Incorporated
+ *  Copyright 2018 Evgeniy Zaikin
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,7 +13,6 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-
 package org.tarantool.cache;
 
 import org.tarantool.SocketChannelProvider;

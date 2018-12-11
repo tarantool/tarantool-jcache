@@ -57,7 +57,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -1311,7 +1310,34 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     public Iterator<Entry<K, V>> iterator() {
         ensureOpen();
         long now = System.currentTimeMillis();
-        return new EntryIterator(now);
+        return new Iterator<Entry<K, V>>() {
+            private Iterator<TarantoolTuple<K, V>> iterator = cursor.iterator(now);
+
+            @Override
+            public boolean hasNext() {
+              return iterator.hasNext();
+            }
+
+            @Override
+            public Entry<K, V> next() {
+              long start = statisticsEnabled() ? System.nanoTime() : 0;
+              TarantoolTuple<K, V> result = iterator.next();
+              if (statisticsEnabled()) {
+                statistics.increaseCacheHits(1);
+                statistics.addGetTimeNano(System.nanoTime() - start);
+              }
+              return new CacheEntry<K,V>(result.getKey(), result.getValue());
+            }
+
+            @Override
+            public void remove() {
+              if (cursor.isLocated()) {
+                TarantoolCache.this.remove(cursor.getKey());
+              } else {
+                throw new IllegalStateException("Must progress to the next entry to remove");
+              }
+            }
+        };
     }
 
     /**
@@ -1514,91 +1540,6 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             }
         }
         return value;
-    }
-
-    /**
-     * An {@link Iterator} over Cache {@link Entry}s that lazily converts
-     * from internal value representation to natural value representation on
-     * demand.
-     */
-    private final class EntryIterator implements Iterator<Entry<K, V>> {
-
-      /**
-       * The {@link TarantoolTuple}.
-       */
-      private Entry<K, V> nextEntry;
-
-      /**
-       * The internal iterator got from {@link TarantoolCursor}.
-       */
-      private final Iterator<Entry<K, V>> iterator;
-
-      /**
-       * Constructs an {@link EntryIterator}.
-       *
-       * @param now      the time the iterator will use to test for expiry
-       */
-      private EntryIterator(long now) {
-        this.iterator = new TarantoolCursor<>(space, expiryPolicy, eventDispatcher).iterator(now);
-        this.nextEntry = null;
-      }
-
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public boolean hasNext() {
-        return iterator.hasNext();
-      }
-
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public Entry<K, V> next() {
-        if (iterator.hasNext()) {
-          long start = statisticsEnabled() ? System.nanoTime() : 0;
-          nextEntry = iterator.next();
-          if (statisticsEnabled()) {
-            statistics.increaseCacheHits(1);
-            statistics.addGetTimeNano(System.nanoTime() - start);
-          }
-          return nextEntry;
-        } else {
-          throw new NoSuchElementException();
-        }
-      }
-
-      /**
-       * {@inheritDoc}
-       */
-      @Override
-      public void remove() {
-        int cacheRemovals = 0;
-        if (nextEntry == null) {
-          throw new IllegalStateException("Must progress to the next entry to remove");
-        } else {
-          long start = statisticsEnabled() ? System.nanoTime() : 0;
-          try {
-            deleteCacheEntry(nextEntry.getKey());
-
-            //NOTE: there is the possibility here that the entry the application
-            // retrieved
-            //may have been replaced / expired or already removed since it
-            // retrieved it.
-
-            //we simply don't care here as multiple-threads are ok to remove and see
-            //such side-effects
-            iterator.remove();
-            cacheRemovals++;
-          } finally {
-            if (statisticsEnabled() && cacheRemovals > 0) {
-              statistics.increaseCacheRemovals(cacheRemovals);
-              statistics.addRemoveTimeNano(System.nanoTime() - start);
-            }
-          }
-        }
-      }
     }
 
 }

@@ -175,7 +175,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
             this.spaceId = createSpace();
         }
 
-        setSpaceTrigger("before_replace",
+        final String trigger = 
                 "function (old,new)\n" +
                 "   if old ~= nil and old[4] ~= nil and\n" +
                 "   old[5] ~= box.session.id() and\n" +
@@ -187,7 +187,8 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
                 "       -- this is a lock request, append session id\n" +
                 "       return box.tuple.new({new[1], new[2], new[3], new[4], box.session.id()})" +
                 "   end\n" +
-                "end");
+                "end";
+        setSpaceTrigger("before_replace", trigger);
 
         log.info("cache initialized: spaceName={}, spaceId={}", spaceName, spaceId);
     }

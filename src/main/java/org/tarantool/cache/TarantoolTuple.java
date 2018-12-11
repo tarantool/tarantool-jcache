@@ -22,9 +22,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
-import javax.cache.Cache.Entry;
-
-public class TarantoolTuple<K,V> extends AbstractList<Object> implements Entry<K, V> {
+public class TarantoolTuple<K,V> extends AbstractList<Object> {
 
     /**
      * Field count
@@ -95,9 +93,10 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> implements Entry<K
     }
 
     /**
-     * {@inheritDoc}
+     * Returns the key corresponding to this tuple.
+     *
+     * @return the key corresponding to this tuple
      */
-    @Override
     @SuppressWarnings("unchecked")
     public K getKey() {
         return (K)values[0];
@@ -113,9 +112,10 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> implements Entry<K
     }
 
     /**
-     * {@inheritDoc}
+     * Returns the value corresponding to this tuple.
+     *
+     * @return the value corresponding to this tuple
      */
-    @Override
     @SuppressWarnings("unchecked")
     public V getValue() {
         return (V)values[1];
@@ -209,22 +209,6 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> implements Entry<K
     public void update() {
         Object[] ops = {updateOperations[1], updateOperations[2]};
         space.update(singletonList(getKey()), ops);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    @SuppressWarnings("unchecked")
-    public <T> T unwrap(Class<T> clazz) {
-      if (clazz != null && clazz.isInstance(this)) {
-        return (T) this;
-      } else if (clazz == org.tarantool.jsr107.CacheEntry.class) {
-        org.tarantool.jsr107.CacheEntry<?,?> e = new org.tarantool.jsr107.CacheEntry<K,V>(getKey(), getValue());
-        return (T) e;
-      } else {
-        throw new IllegalArgumentException("Class " + clazz + " is unknown to this implementation");
-      }
     }
 
     /**

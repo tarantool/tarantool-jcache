@@ -21,7 +21,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import javax.cache.Cache.Entry;
 import javax.cache.expiry.Duration;
 import javax.cache.expiry.ExpiryPolicy;
 
@@ -114,12 +113,12 @@ public class TarantoolCursor<K, V> {
 
   /**
    * Select first (top) Tarantool's tuple from Space, build iterator,
-   * which can be used to iterate next Tuple.
+   * which can be used to iterate next Tuple (server-side cursor).
    *
    * @param now      the time the iterator will use to test for expiry
    */
-  public Iterator<Entry<K, V>> iterator(long now) {
-      Iterator<Entry<K, V>> iterator = new Iterator<Entry<K, V>>() {
+  public Iterator<TarantoolTuple<K, V>> iterator(long now) {
+      Iterator<TarantoolTuple<K, V>> iterator = new Iterator<TarantoolTuple<K, V>>() {
           private Iterator<?> iterator = space.first().iterator();
 
           @Override
@@ -128,7 +127,7 @@ public class TarantoolCursor<K, V> {
           }
 
           @Override
-          public Entry<K, V> next() {
+          public TarantoolTuple<K, V> next() {
             if (iterator.hasNext()) {
               // It is still current tuple, parse it
               tuple.assign((List<?>) iterator.next());
@@ -284,8 +283,16 @@ public class TarantoolCursor<K, V> {
     if (cursorType == CursorType.UNDEFINED) {
       throw new IllegalStateException("Cursor is not opened");
     }
-    long expiryTime = tuple.getExpiryTime();
-    return expiryTime > -1 && expiryTime <= now;
+    return tuple.isExpiredAt(now);
+  }
+
+  /**
+   * Gets the key (without updating the access time).
+   *
+   * @return the key
+   */
+  public K getKey() {
+      return tuple.getKey();
   }
 
   /**
@@ -326,7 +333,7 @@ public class TarantoolCursor<K, V> {
     // even if the tuple exists we should check whether it is not expired,
     // and if it is, we don't delete expired tuple here,
     // performing forced update with creation time instead
-    if (isExpiredAt(modificationTime)) {
+    if (tuple.isExpiredAt(modificationTime)) {
         try {
             duration = expiryPolicy.getExpiryForCreation();
         } catch (Throwable t) {
@@ -352,7 +359,7 @@ public class TarantoolCursor<K, V> {
         tuple.setExpiryTime(expiryTime);
         // And check whether Tuple with new expiryTime becomes expired
         // and if it is, we must delete expired tuple right here
-        if (!isExpiredAt(modificationTime)) {
+        if (!tuple.isExpiredAt(modificationTime)) {
             tuple.update();
             eventHandler.onUpdated(key, newValue, oldValue);
         } else {
@@ -382,7 +389,7 @@ public class TarantoolCursor<K, V> {
             tuple.setExpiryTime(expiryTime);
             // And check whether Tuple with new expiryTime becomes expired
             // and if it is, we must delete expired tuple right here
-            if (!isExpiredAt(accessTime)) {
+            if (!tuple.isExpiredAt(accessTime)) {
                 tuple.updateExpiry();
             } else {
                 delete();

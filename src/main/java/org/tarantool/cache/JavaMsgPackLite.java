@@ -8,9 +8,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -35,11 +33,11 @@ public class JavaMsgPackLite extends MsgPackLite {
         DataOutputStream out = new DataOutputStream(os);
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-          oos.writeObject(item);
-          oos.flush();
-          out.write(MP_BIN32);
-          out.writeInt(bos.size());
-          bos.writeTo(out);
+            oos.writeObject(item);
+            oos.flush();
+            out.write(MP_BIN32);
+            out.writeInt(bos.size());
+            bos.writeTo(out);
         } catch (IOException e) {
             out.write(MP_NULL);
             // eat this up
@@ -49,14 +47,6 @@ public class JavaMsgPackLite extends MsgPackLite {
     @Override
     public void pack(Object item, OutputStream os) throws IOException {
         if (item == null) {
-            super.pack(item, os);
-        } else if (item instanceof Date) {
-            //super.pack(((Date)item).getTime(), os);
-            packBin(item, os);
-        } else if (item instanceof BigDecimal) {
-            //super.pack(((BigDecimal)item).toPlainString(), os);
-            packBin(item, os);
-        } else if (item instanceof Callable) {
             super.pack(item, os);
         } else if (item instanceof Boolean) {
             super.pack(item, os);
@@ -88,9 +78,9 @@ public class JavaMsgPackLite extends MsgPackLite {
 
         ByteArrayInputStream bos = new ByteArrayInputStream(data);
         try (ObjectInputStream ois = new ObjectInputStream(bos)) {
-          return ois.readObject();
+            return ois.readObject();
         } catch (IOException e) {
-          throw e;
+            throw e;
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
             return null;

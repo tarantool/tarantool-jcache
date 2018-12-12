@@ -1,17 +1,17 @@
 /**
- *  Copyright 2018 Evgeniy Zaikin
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
+ * Copyright 2018 Evgeniy Zaikin
+ * <p>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package org.tarantool.cache;
 
@@ -120,8 +120,8 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
         List<?> response = execute(command);
         if (!response.isEmpty()) {
             @SuppressWarnings("unchecked")
-            Map<String, Map<?,?>> index = (Map<String, Map<?,?>>) response.get(0);
-            Map<?,?> primary = index.get("primary");
+            Map<String, Map<?, ?>> index = (Map<String, Map<?, ?>>) response.get(0);
+            Map<?, ?> primary = index.get("primary");
             if (primary != null) {
                 Object indexType = primary.get("type");
                 if (indexType != null && indexType.toString().equalsIgnoreCase(DEFAULT_INDEX_TYPE)) {
@@ -132,7 +132,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
         return false;
     }
 
-    private void setSpaceTrigger(String triggerType, String triggerFunc) {
+    protected void setSpaceTrigger(String triggerType, String triggerFunc) {
         String function = "box.space." + spaceName + ":" + triggerType;
         try {
             try {
@@ -153,7 +153,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @param cacheName     the name of the Cache
      */
     public TarantoolSpace(TarantoolSession session,
-                   String cacheName) {
+                          String cacheName) {
         if (session == null || cacheName == null) {
             throw new NullPointerException();
         }
@@ -175,21 +175,6 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
             this.spaceId = createSpace();
         }
 
-        final String trigger = 
-                "function (old,new)\n" +
-                "   if old ~= nil and old[4] ~= nil and\n" +
-                "   old[5] ~= box.session.id() and\n" +
-                "   box.session.exists(old[5]) then\n" +
-                "       -- the row is locked by other active session, cancel update\n" +
-                "       return old\n" +
-                "   end\n" +
-                "   if new ~= nil and new[4] ~= nil then\n" +
-                "       -- this is a lock request, append session id\n" +
-                "       return box.tuple.new({new[1], new[2], new[3], new[4], box.session.id()})" +
-                "   end\n" +
-                "end";
-        setSpaceTrigger("before_replace", trigger);
-
         log.info("cache initialized: spaceName={}, spaceId={}", spaceName, spaceId);
     }
 
@@ -208,12 +193,12 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @throws TarantoolException if keys list is empty
      */
     public List<?> select(List<?> keys) {
-      try {
-          int iter = org.tarantool.Iterator.EQ.getValue();
-          return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            int iter = org.tarantool.Iterator.EQ.getValue();
+            return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -222,14 +207,14 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @return List<?> as response.
      */
     public List<?> select() {
-      try {
-          int iter = org.tarantool.Iterator.ALL.getValue();
-          // Adjust max size of batch per select
-          int limit = Integer.MAX_VALUE;
-          return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, limit, iter);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            int iter = org.tarantool.Iterator.ALL.getValue();
+            // Adjust max size of batch per select
+            int limit = Integer.MAX_VALUE;
+            return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, limit, iter);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -240,18 +225,18 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @throws TarantoolException if keys list is empty
      */
     public List<?> next(List<?> keys) {
-      try {
-          /**
-           * Adjust iterator for fetching next tuple from Tarantool's space
-           * Tarantool supports different type of iteration (See TarantoolIterator),
-           * but not every index (HASH, TREE, ...) supports these types.
-           * See https://tarantool.io/en/doc/2.0/book/box/data_model/
-           */
-          int iter = org.tarantool.Iterator.GT.getValue();
-          return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            /**
+             * Adjust iterator for fetching next tuple from Tarantool's space
+             * Tarantool supports different type of iteration (See TarantoolIterator),
+             * but not every index (HASH, TREE, ...) supports these types.
+             * See https://tarantool.io/en/doc/2.0/book/box/data_model/
+             */
+            int iter = org.tarantool.Iterator.GT.getValue();
+            return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -260,13 +245,13 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @return List<?> as response.
      */
     public List<?> first() {
-      try {
-          int iter = org.tarantool.Iterator.ALL.getValue();
-          /* Limit is always 1 to fetch only one tuple */
-          return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, 1, iter);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            int iter = org.tarantool.Iterator.ALL.getValue();
+            /* Limit is always 1 to fetch only one tuple */
+            return session.syncOps().select(spaceId, 0, Collections.emptyList(), 0, 1, iter);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -275,11 +260,11 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @return List<?> list of inserted tuples, or empty list if failed.
      */
     public List<?> insert(List<?> tuple) {
-      try {
-          return session.syncOps().insert(spaceId, tuple);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            return session.syncOps().insert(spaceId, tuple);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -289,11 +274,11 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @return List<?> list of updated tuples.
      */
     public List<?> update(List<?> keys, Object... ops) {
-      try {
-          return session.syncOps().update(spaceId, keys, ops);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            return session.syncOps().update(spaceId, keys, ops);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -303,11 +288,11 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @param Object... ops operations for update (if tuple exists)
      */
     public List<?> upsert(List<?> keys, List<?> defTuple, Object... ops) {
-      try {
-          return session.syncOps().upsert(spaceId, keys, defTuple, ops);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            return session.syncOps().upsert(spaceId, keys, defTuple, ops);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -316,11 +301,11 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @return List<?> as list of actually deleted tuples.
      */
     public List<?> delete(List<?> keys) {
-      try {
-          return session.syncOps().delete(spaceId, keys);
-      } catch (Exception e) {
-          throw new TarantoolCacheException(e);
-      }
+        try {
+            return session.syncOps().delete(spaceId, keys);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
     }
 
     /**
@@ -354,7 +339,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
         TarantoolEventHandler<K, V> eventHandler = new TarantoolEventHandler<K, V>() {
         };
         // Construct TarantoolCursor, open Iterator (client-side cursor with read-only mode)
-        return new TarantoolCursor<K,V>(this, null, eventHandler).open();
+        return new TarantoolCursor<K, V>(this, null, eventHandler).open();
     }
 
 }

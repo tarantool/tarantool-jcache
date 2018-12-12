@@ -72,9 +72,9 @@ import static org.tarantool.jsr107.management.MBeanServerRegistrationUtility.Obj
  * (See 'box.space.{space_object_name}' in Tarantool's help)
  * So every TarantoolCache, successfully created from within {@link TarantoolCacheManager},
  * means {space_object} with given name exists within corresponding Tarantool instance.
- *
+ * <p>
  * For every newly created {space_object} key field and hash index for this key field are built.
- *
+ * <p>
  * But when {@link TarantoolCache} or {@link TarantoolCacheManager} are about to be closed,
  * we shouldn't drop {space_object} in order to prevent performance degradation.
  * We should provide cache element eviction/expiration policy instead.
@@ -141,7 +141,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
      * {@link Cache}.
      */
     private final CopyOnWriteArrayList<CacheEntryListenerRegistration<K,
-        V>> listenerRegistrations;
+            V>> listenerRegistrations;
 
     /**
      * Event dispatcher is used for dispatching Events to all the Listeners
@@ -206,15 +206,15 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         }
         @SuppressWarnings("unchecked")
         Factory<CacheWriter<K, V>> cacheWriterFactory =
-           (Factory<CacheWriter<K, V>>)(Object)this.configuration.getCacheWriterFactory();
+                (Factory<CacheWriter<K, V>>) (Object) this.configuration.getCacheWriterFactory();
         if (cacheWriterFactory != null) {
             cacheWriter = cacheWriterFactory.create();
         }
 
         if (session.getSessionConfiguration() != null) {
             internalConfiguration = getConfiguration(
-                        session.getSessionConfiguration().getCacheConfiguration(cacheName),
-                        session.getSessionConfiguration().getDefaultCacheConfiguration());
+                    session.getSessionConfiguration().getCacheConfiguration(cacheName),
+                    session.getSessionConfiguration().getDefaultCacheConfiguration());
         } else {
             internalConfiguration = null;
         }
@@ -262,7 +262,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     private void createAndAddListener(CacheEntryListenerConfiguration<K, V> listenerConfiguration) {
         CacheEntryListenerRegistration<K, V> registration = new
                 CacheEntryListenerRegistration<K, V>(listenerConfiguration);
-            listenerRegistrations.add(registration);
+        listenerRegistrations.add(registration);
     }
 
     private void removeListener(CacheEntryListenerConfiguration<K, V> cacheEntryListenerConfiguration) {
@@ -271,8 +271,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         }
         for (CacheEntryListenerRegistration<K, V> listenerRegistration : listenerRegistrations) {
             if (cacheEntryListenerConfiguration.equals(listenerRegistration.getConfiguration())) {
-              listenerRegistrations.remove(listenerRegistration);
-              configuration.removeCacheEntryListenerConfiguration(cacheEntryListenerConfiguration);
+                listenerRegistrations.remove(listenerRegistration);
+                configuration.removeCacheEntryListenerConfiguration(cacheEntryListenerConfiguration);
             }
         }
     }
@@ -289,17 +289,17 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     /**
      * Selects first valid (non null) Configuration {@link Configuration} from
      * given {@link Configuration}s
-     * @param Configuration<?,?> all available configurations
-     * @param <K> type of keys
-     * @param <V> type of values
      *
-     * @return Configuration<K,V> selected from all available configurations
+     * @param Configuration<?,?> all available configurations
+     * @param <K>                type of keys
+     * @param <V>                type of values
+     * @return Configuration<K                                                               ,                                                               V> selected from all available configurations
      */
     @SuppressWarnings("unchecked")
-    protected <C extends Configuration<K, V>> C getConfiguration(Configuration<?,?> ... configurations) {
-        for (Configuration<?,?> configuration : configurations) {
+    protected <C extends Configuration<K, V>> C getConfiguration(Configuration<?, ?>... configurations) {
+        for (Configuration<?, ?> configuration : configurations) {
             if (configuration != null) {
-                return (C)configuration;
+                return (C) configuration;
             }
         }
         return null;
@@ -367,14 +367,14 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
             //close the configured CacheEntryListeners
             for (CacheEntryListenerRegistration<K, V> registration : listenerRegistrations) {
-              if (registration.getCacheEntryListener() instanceof Closeable) {
-                try {
-                  ((Closeable) registration.getCacheEntryListener()).close();
-                } catch (IOException e) {
-                  log.error("Exception occurred during closing listener " +
-                       registration.getCacheEntryListener().getClass(), e);
+                if (registration.getCacheEntryListener() instanceof Closeable) {
+                    try {
+                        ((Closeable) registration.getCacheEntryListener()).close();
+                    } catch (IOException e) {
+                        log.error("Exception occurred during closing listener " +
+                                registration.getCacheEntryListener().getClass(), e);
+                    }
                 }
-              }
             }
 
             //attempt to shutdown (and wait for the cache to shutdown)
@@ -382,11 +382,11 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             try {
                 // Wait a while for existing tasks to terminate
                 if (!executorService.awaitTermination(EXECUTOR_WAIT_TIMEOUT, TimeUnit.SECONDS)) {
-                  executorService.shutdownNow(); // Cancel currently executing tasks
-                  // Wait a while for tasks to respond to being cancelled
-                  if (!executorService.awaitTermination(EXECUTOR_WAIT_TIMEOUT, TimeUnit.SECONDS)) {
-                      log.error("executorService did not terminate");
-                  }
+                    executorService.shutdownNow(); // Cancel currently executing tasks
+                    // Wait a while for tasks to respond to being cancelled
+                    if (!executorService.awaitTermination(EXECUTOR_WAIT_TIMEOUT, TimeUnit.SECONDS)) {
+                        log.error("executorService did not terminate");
+                    }
                 }
             } catch (InterruptedException e) {
                 // (Re-)Cancel if current thread also interrupted
@@ -498,44 +498,44 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             }
 
             submit(new Runnable() {
-              @Override
-              public void run() {
-                try {
-                    ArrayList<K> keysToLoad = new ArrayList<K>();
-                    for (K key : keys) {
-                        if (replaceExistingValues || !containsKey(key)) {
-                            keysToLoad.add(key);
-                        }
-                    }
-
-                    Map<? extends K, ? extends V> loaded;
+                @Override
+                public void run() {
                     try {
-                        loaded = cacheLoader.loadAll(keysToLoad);
+                        ArrayList<K> keysToLoad = new ArrayList<K>();
+                        for (K key : keys) {
+                            if (replaceExistingValues || !containsKey(key)) {
+                                keysToLoad.add(key);
+                            }
+                        }
+
+                        Map<? extends K, ? extends V> loaded;
+                        try {
+                            loaded = cacheLoader.loadAll(keysToLoad);
+                        } catch (Exception e) {
+                            if (!(e instanceof CacheLoaderException)) {
+                                throw new CacheLoaderException("Exception in CacheLoader", e);
+                            } else {
+                                throw e;
+                            }
+                        }
+
+                        for (K key : keysToLoad) {
+                            if (loaded.get(key) == null) {
+                                loaded.remove(key);
+                            }
+                        }
+
+                        putAll(loaded, replaceExistingValues, false);
+
+                        if (completionListener != null) {
+                            completionListener.onCompletion();
+                        }
                     } catch (Exception e) {
-                        if (!(e instanceof CacheLoaderException)) {
-                            throw new CacheLoaderException("Exception in CacheLoader", e);
-                        } else {
-                            throw e;
+                        if (completionListener != null) {
+                            completionListener.onException(e);
                         }
-                    }
-
-                    for (K key : keysToLoad) {
-                        if (loaded.get(key) == null) {
-                            loaded.remove(key);
-                        }
-                    }
-
-                    putAll(loaded, replaceExistingValues, false);
-
-                    if (completionListener != null) {
-                        completionListener.onCompletion();
-                    }
-                } catch (Exception e) {
-                    if (completionListener != null) {
-                        completionListener.onException(e);
                     }
                 }
-              }
             });
         }
     }
@@ -558,12 +558,13 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         checkTypesAgainstConfiguredTypes(key, value);
 
         long now = System.currentTimeMillis();
-        //TODO: writes should not happen on a new expired entry
-        writeCacheEntry(key, value);
         if (cursor.locate(key)) {
+            V oldValue = cursor.getValue();
             cursor.update(value, now);
+            writeCacheEntry(key, value, oldValue);
             putCount++;
         } else if (cursor.insert(key, value, now)) {
+            writeCacheEntry(key, value, null);
             putCount++;
         }
         if (statisticsEnabled() && putCount > 0) {
@@ -608,21 +609,22 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
             if (cursor.locate(key)) {
                 if (!cursor.isExpiredAt(now)) {
-                    result = cursor.getValue();
-                    writeCacheEntry(key, value);
+                    V oldValue = cursor.getValue();
+                    result = oldValue;
                     cursor.update(value, now);
+                    writeCacheEntry(key, value, oldValue);
 
                 } else {
 
-                    writeCacheEntry(key, value);
                     cursor.update(value, now);
+                    writeCacheEntry(key, value, null);
                 }
                 putCount++;
 
             } else {
 
-                writeCacheEntry(key, value);
                 if (cursor.insert(key, value, now)) {
+                    writeCacheEntry(key, value, null);
                     putCount++;
                 }
             }
@@ -776,17 +778,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
         boolean result = false;
         if (!cursor.locate(key) && cursor.insert(key, value, now)) {
-
-            try {
-                writeCacheEntry(key, value);
-                result = true;
-            } catch (CacheWriterException e) {
-                // Something goes wrong, delete tuple entry to keep consistency,
-                // suppose this entry wasn't allocated before putIfAbsent() call,
-                // so we don't need additional consistency checks - just delete.
-                cursor.delete();
-                throw e;
-            }
+            writeCacheEntry(key, value, null);
+            result = true;
         }
 
         if (statisticsEnabled()) {
@@ -930,8 +923,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
                 if (oldValue.equals(cursor.getValue())) {
 
-                    writeCacheEntry(key, newValue);
                     cursor.update(newValue, now);
+                    writeCacheEntry(key, newValue, oldValue);
                     result = true;
 
                 } else {
@@ -976,8 +969,9 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         boolean result = false;
         try {
             if (cursor.locate(key) && !cursor.isExpiredAt(now)) {
-                writeCacheEntry(key, value);
+                V oldValue = cursor.getValue();
                 cursor.update(value, now);
+                writeCacheEntry(key, value, oldValue);
                 result = true;
             }
         } finally {
@@ -1015,9 +1009,10 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         V result = null;
         try {
             if (cursor.locate(key) && !cursor.isExpiredAt(now)) {
-                result = cursor.getValue();
-                writeCacheEntry(key, value);
+                V oldValue = cursor.getValue();
+                result = oldValue;
                 cursor.update(value, now);
+                writeCacheEntry(key, value, oldValue);
             }
         } finally {
             cursor.close();
@@ -1067,7 +1062,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                     //only delete those keys that the writer deleted. per CacheWriter spec.
                     if (!cacheWriterKeys.contains(key)) {
                         if (cursor.delete(key)) {
-                          deletedKeys.add(key);
+                            deletedKeys.add(key);
                         }
                     }
                 }
@@ -1183,6 +1178,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
         T result;
         V newValue;
+        V oldValue;
         try {
             long now = System.currentTimeMillis();
 
@@ -1221,8 +1217,8 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
                 case CREATE:
                     newValue = entry.getValue();
-                    writeCacheEntry(key, newValue);
                     if (cursor.insert(key, newValue, now)) {
+                        writeCacheEntry(key, newValue, null);
                         if (statisticsEnabled()) {
                             statistics.increaseCachePuts(1);
                             statistics.addPutTimeNano(System.nanoTime() - start);
@@ -1239,8 +1235,9 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
                 case UPDATE:
                     newValue = entry.getValue();
-                    writeCacheEntry(key, newValue);
+                    oldValue = cursor.getValue();
                     cursor.update(newValue, now);
+                    writeCacheEntry(key, newValue, oldValue);
 
                     if (statisticsEnabled()) {
                         statistics.increaseCachePuts(1);
@@ -1315,27 +1312,27 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
             @Override
             public boolean hasNext() {
-              return iterator.hasNext();
+                return iterator.hasNext();
             }
 
             @Override
             public Entry<K, V> next() {
-              long start = statisticsEnabled() ? System.nanoTime() : 0;
-              TarantoolTuple<K, V> result = iterator.next();
-              if (statisticsEnabled()) {
-                statistics.increaseCacheHits(1);
-                statistics.addGetTimeNano(System.nanoTime() - start);
-              }
-              return new CacheEntry<K,V>(result.getKey(), result.getValue());
+                long start = statisticsEnabled() ? System.nanoTime() : 0;
+                TarantoolTuple<K, V> result = iterator.next();
+                if (statisticsEnabled()) {
+                    statistics.increaseCacheHits(1);
+                    statistics.addGetTimeNano(System.nanoTime() - start);
+                }
+                return new CacheEntry<K, V>(result.getKey(), result.getValue());
             }
 
             @Override
             public void remove() {
-              if (cursor.isLocated()) {
-                TarantoolCache.this.remove(cursor.getKey());
-              } else {
-                throw new IllegalStateException("Must progress to the next entry to remove");
-              }
+                if (cursor.isLocated()) {
+                    TarantoolCache.this.remove(cursor.getKey());
+                } else {
+                    throw new IllegalStateException("Must progress to the next entry to remove");
+                }
             }
         };
     }
@@ -1421,7 +1418,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
     private boolean statisticsEnabled() {
         if (internalConfiguration != null) {
-          return internalConfiguration.isStatisticsEnabled() || configuration.isStatisticsEnabled();
+            return internalConfiguration.isStatisticsEnabled() || configuration.isStatisticsEnabled();
         }
         return configuration.isStatisticsEnabled();
     }
@@ -1429,11 +1426,16 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     /**
      * Writes the Cache Entry to the configured CacheWriter.  Does nothing if
      * write-through is not configured.
+     * Also provides consistency here: if exception was thrown,
+     * rolls back tarantool's tuple or just deletes it.
      *
-     * @param entry the Cache Entry to write
+     * @param key of the Cache Entry to write
+     * @param value of the Cache Entry to write
+     * @param oldValue previous value
      */
-    private void writeCacheEntry(K key, V value) {
+    private void writeCacheEntry(K key, V value, V oldValue) {
         if (configuration.isWriteThrough()) {
+            long now = System.currentTimeMillis();
             try {
                 /* Don't worry about the Heap: this entry is not persistent,
                  * and it is not associated with Tarantool's tuple.
@@ -1441,6 +1443,15 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                  */
                 cacheWriter.write(new CacheEntry<K, V>(key, value));
             } catch (Exception e) {
+                /*
+                 * Consistency. Update back to old value,
+                 * or just delete tuple.
+                 */
+                if (oldValue != null) {
+                    cursor.update(oldValue, now);
+                } else {
+                    cursor.delete();
+                }
                 if (!(e instanceof CacheWriterException)) {
                     throw new CacheWriterException("Exception in CacheWriter", e);
                 } else {

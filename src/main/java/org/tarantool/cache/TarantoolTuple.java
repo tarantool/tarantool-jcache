@@ -1,17 +1,17 @@
 /**
- *  Copyright 2018 Evgeniy Zaikin
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
+ * Copyright 2018 Evgeniy Zaikin
+ * <p>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package org.tarantool.cache;
 
@@ -22,7 +22,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
-public class TarantoolTuple<K,V> extends AbstractList<Object> {
+public class TarantoolTuple<K, V> extends AbstractList<Object> {
 
     /**
      * Field count
@@ -44,14 +44,14 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> {
     /**
      * The {@link TarantoolSpace} is space where {@link TarantoolTuple} is stored.
      */
-    private final TarantoolSpace<K,V> space;
+    private final TarantoolSpace<K, V> space;
 
     /**
      * Constructs an {@link TarantoolTuple}
      *
      * @param space {@link TarantoolSpace} where {@link TarantoolTuple} is stored.
      */
-    public TarantoolTuple(TarantoolSpace<K,V> space) {
+    public TarantoolTuple(TarantoolSpace<K, V> space) {
         this.space = space;
         for (int i = 0; i < updateOperations.length; i++) {
             updateOperations[i][0] = "=";
@@ -75,7 +75,7 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> {
         int size = size();
         if (a.length < size)
             return Arrays.copyOf(this.values, size,
-                                 (Class<? extends T[]>) a.getClass());
+                    (Class<? extends T[]>) a.getClass());
         System.arraycopy(this.values, 0, a, 0, size);
         if (a.length > size)
             a[size] = null;
@@ -99,7 +99,7 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> {
      */
     @SuppressWarnings("unchecked")
     public K getKey() {
-        return (K)values[0];
+        return (K) values[0];
     }
 
     /**
@@ -118,7 +118,7 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> {
      */
     @SuppressWarnings("unchecked")
     public V getValue() {
-        return (V)values[1];
+        return (V) values[1];
     }
 
     /**
@@ -159,8 +159,8 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> {
      * @throws IllegalStateException if cursor is not opened
      */
     public boolean isExpiredAt(long now) {
-      long expiryTime = getExpiryTime();
-      return expiryTime > -1 && expiryTime <= now;
+        long expiryTime = getExpiryTime();
+        return expiryTime > -1 && expiryTime <= now;
     }
 
     /**
@@ -212,10 +212,18 @@ public class TarantoolTuple<K,V> extends AbstractList<Object> {
     }
 
     /**
+     * Performs the full update operation (value and expiryTime) or insert
+     */
+    public void upsert() {
+        Object[] ops = {updateOperations[1], updateOperations[2]};
+        space.upsert(singletonList(getKey()), this, ops);
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
     public int hashCode() {
-      return getKey().hashCode();
+        return getKey().hashCode();
     }
 }

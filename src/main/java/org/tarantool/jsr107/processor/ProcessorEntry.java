@@ -17,7 +17,8 @@
 
 package org.tarantool.jsr107.processor;
 
-import org.tarantool.cache.TarantoolCursor;
+import org.tarantool.cache.MutableEntryOperation;
+import org.tarantool.cache.NativeCache;
 
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CacheLoaderException;
@@ -28,7 +29,7 @@ import javax.cache.processor.MutableEntry;
  * A {@link javax.cache.processor.MutableEntry} that is used by {@link EntryProcessor}s.
  *
  * @param <K> the type of keys maintained by this map
- * @param <V> the type of mapped values*
+ * @param <V> the type of mapped values
  * @author Greg Luck
  * @author Evgeniy Zaikin
  */
@@ -39,9 +40,9 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
   private final K key;
 
   /**
-   * The {@link TarantoolCursor} for the {@link MutableEntry}.
+   * The {@link NativeCache} for the {@link MutableEntry}.
    */
-  private final TarantoolCursor<K, V> cursor;
+  private final NativeCache<K, V> cache;
 
   /**
    * The new value for the {@link MutableEntry}.
@@ -54,11 +55,6 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
   private MutableEntryOperation operation;
 
   /**
-   * The time (since the Epoch) when the MutableEntry was created.
-   */
-  private long now;
-
-  /**
    * CacheLoader to call if getValue() would return null.
    */
   private CacheLoader<K, V> cacheLoader;
@@ -67,20 +63,18 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
    * Construct a {@link MutableEntry}
    *
    * @param key         the key for the {@link MutableEntry}
-   * @param cursor      the {@link TarantoolCursor} of the {@link MutableEntry}
+   * @param cache       the {@link NativeCache} of the {@link MutableEntry}
    *                    (may be <code>null</code>)
-   * @param now         the current time
    * @param dispatcher  the dispatch to capture events to dispatch
    * @param cacheLoader cacheLoader should be non-null only if configuration.isReadThrough is true.
    */
   public ProcessorEntry(K key,
-                             TarantoolCursor<K, V> cursor, long now,
+                             NativeCache<K, V> cache,
                              CacheLoader<K, V> cacheLoader) {
     this.key = key;
-    this.cursor = cursor;
+    this.cache = cache;
     this.operation = MutableEntryOperation.NONE;
     this.value = null;
-    this.now = now;
     this.cacheLoader = cacheLoader;
   }
 
@@ -98,19 +92,14 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
   @Override
   public V getValue() {
     if (operation == MutableEntryOperation.NONE) {
-      if (!cursor.isLocated() || cursor.isExpiredAt(now)) {
+      if (!cache.containsKey(key)) {
         value = null;
       } else if (value == null) {
-        value = cursor.fetch(now);
+        value = cache.get(key);
       }
     }
 
-    if (value != null) {
-      // mark as Accessed so AccessedExpiry will be computed upon return from entry processor.
-      if (operation == MutableEntryOperation.NONE) {
-        operation = MutableEntryOperation.ACCESS;
-      }
-    } else {
+    if (value == null) {
       // check for read-through
       if (cacheLoader != null) {
         try {
@@ -135,7 +124,7 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
    */
   @Override
   public boolean exists() {
-    return (operation == MutableEntryOperation.NONE && cursor.isLocated() && !cursor.isExpiredAt(now)) || value != null;
+    return (operation == MutableEntryOperation.NONE && cache.containsKey(key)) || value != null;
   }
 
   /**
@@ -156,7 +145,7 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
     if (value == null) {
       throw new NullPointerException();
     }
-    operation = !cursor.isLocated() || cursor.isExpiredAt(now) ? MutableEntryOperation.CREATE : MutableEntryOperation.UPDATE;
+    operation = !cache.containsKey(key) ? MutableEntryOperation.CREATE : MutableEntryOperation.UPDATE;
     this.value = value;
   }
 

@@ -15,8 +15,6 @@
  */
 package org.tarantool.cache;
 
-import static java.util.Collections.singletonList;
-
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -156,7 +154,6 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      *
      * @param now time in milliseconds (since the Epoch)
      * @return true if the value would be expired at the specified time
-     * @throws IllegalStateException if cursor is not opened
      */
     public boolean isExpiredAt(long now) {
         long expiryTime = getExpiryTime();
@@ -193,14 +190,14 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      * Performs the update value operation.
      */
     public void updateValue() {
-        space.update(singletonList(getKey()), (Object) updateOperations[1]);
+        space.update(getKey(), (Object) updateOperations[1]);
     }
 
     /**
      * Performs the update expiryTime operation.
      */
     public void updateExpiry() {
-        space.update(singletonList(getKey()), (Object) updateOperations[2]);
+        space.update(getKey(), (Object) updateOperations[2]);
     }
 
     /**
@@ -208,7 +205,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      */
     public void update() {
         Object[] ops = {updateOperations[1], updateOperations[2]};
-        space.update(singletonList(getKey()), ops);
+        space.update(getKey(), ops);
     }
 
     /**
@@ -216,7 +213,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      */
     public void upsert() {
         Object[] ops = {updateOperations[1], updateOperations[2]};
-        space.upsert(singletonList(getKey()), this, ops);
+        space.upsert(getKey(), this, ops);
     }
 
     /**

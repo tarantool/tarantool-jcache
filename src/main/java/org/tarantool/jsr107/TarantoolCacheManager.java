@@ -273,6 +273,7 @@ public class TarantoolCacheManager implements CacheManager {
     Cache<?, ?> cache = caches.get(cacheName);
 
     if (cache != null) {
+      cache.clear();
       cache.close();
     }
   }

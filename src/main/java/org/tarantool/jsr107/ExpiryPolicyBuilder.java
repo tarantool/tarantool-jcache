@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.tarantool.cache;
+package org.tarantool.jsr107;
 
 import javax.cache.expiry.ExpiryPolicy;
 import javax.cache.configuration.Factory;

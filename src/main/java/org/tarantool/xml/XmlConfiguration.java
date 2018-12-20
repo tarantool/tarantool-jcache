@@ -17,7 +17,7 @@
 package org.tarantool.xml;
 
 import org.tarantool.cache.ClassLoading;
-import org.tarantool.cache.ExpiryPolicyBuilder;
+import org.tarantool.jsr107.ExpiryPolicyBuilder;
 import org.tarantool.TarantoolClientConfig;
 
 import javax.cache.configuration.Configuration;

@@ -15,24 +15,17 @@
  *  limitations under the License.
  */
 
-package org.tarantool.jsr107.processor;
-
-import javax.cache.processor.MutableEntry;
+package org.tarantool.cache;
 
 /**
- * The operation to perform on a {@link org.tarantool.cache.TarantoolCursor} as a result of
- * actions performed on a {@link MutableEntry}.
+ * The operation to perform on a {@link org.tarantool.cache.NativeCache} as a result of
+ * actions performed on a Mutable Entry.
  */
 public enum MutableEntryOperation {
   /**
    * Don't perform any operations on the entry.
    */
   NONE,
-
-  /**
-   * Access an existing entry.
-   */
-  ACCESS,
 
   /**
    * Create a new entry.

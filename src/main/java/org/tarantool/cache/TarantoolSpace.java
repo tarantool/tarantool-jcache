@@ -27,6 +27,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tarantool.TarantoolException;
 
+/**
+ * TarantoolSpace associated with Tarantool's {space_object},
+ * (See 'box.space.{space_object_name}' in Tarantool's help)
+ * <p>
+ * For every newly created {space_object} key field and hash index for this key field are built.
+ * <p>
+ *
+ * @param <K> the type of keys
+ * @param <V> the type of values
+ * @author Evgeniy Zaikin
+ */
 public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     private static final Logger log = LoggerFactory.getLogger(TarantoolSpace.class);
@@ -55,6 +66,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Execute and evaluate.
+     *
      * @param expression string
      * @return List<?> as response.
      */
@@ -149,8 +161,8 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     /**
      * Constructs an Space representation.
      *
-     * @param session       the TarantoolSession that's creating this representation
-     * @param cacheName     the name of the Cache
+     * @param session   the TarantoolSession that's creating this representation
+     * @param cacheName the name of the Cache
      */
     public TarantoolSpace(TarantoolSession session,
                           String cacheName) {
@@ -188,14 +200,14 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Execute "select" request.
-     * @param keys List<?> keys
+     *
+     * @param key the key
      * @return List<?> as response.
-     * @throws TarantoolException if keys list is empty
      */
-    public List<?> select(List<?> keys) {
+    public List<?> select(K key) {
         try {
             int iter = org.tarantool.Iterator.EQ.getValue();
-            return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
+            return session.syncOps().select(spaceId, 0, singletonList(key), 0, 1, iter);
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -203,7 +215,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Select all available tuples in this space
-     * @param keys List<?> keys
+     *
      * @return List<?> as response.
      */
     public List<?> select() {
@@ -220,11 +232,11 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     /**
      * Fetch next tuple by executing "select" request.
      * Uses Iterator.GT iterator to get next tuple.
-     * @param keys List<?> current tuple keys
+     *
+     * @param key current tuple key
      * @return List<?> as response.
-     * @throws TarantoolException if keys list is empty
      */
-    public List<?> next(List<?> keys) {
+    public List<?> next(K key) {
         try {
             /**
              * Adjust iterator for fetching next tuple from Tarantool's space
@@ -233,7 +245,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
              * See https://tarantool.io/en/doc/2.0/book/box/data_model/
              */
             int iter = org.tarantool.Iterator.GT.getValue();
-            return session.syncOps().select(spaceId, 0, keys, 0, 1, iter);
+            return session.syncOps().select(spaceId, 0, singletonList(key), 0, 1, iter);
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -241,6 +253,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Fetch first available tuple in this space
+     *
      * @param keys List<?> keys
      * @return List<?> as response.
      */
@@ -256,10 +269,11 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Execute insert request.
+     *
      * @param tuple List<?> tuple to insert
      * @return List<?> list of inserted tuples, or empty list if failed.
      */
-    public List<?> insert(List<?> tuple) {
+    public List<?> insert(TarantoolTuple<K, V> tuple) {
         try {
             return session.syncOps().insert(spaceId, tuple);
         } catch (Exception e) {
@@ -269,13 +283,14 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Execute update request.
-     * @param keys List<?> keys
+     *
+     * @param key       the key
      * @param Object... ops operations for update
-     * @return List<?> list of updated tuples.
+     * @return List<?>  list of updated tuples.
      */
-    public List<?> update(List<?> keys, Object... ops) {
+    public List<?> update(K key, Object... ops) {
         try {
-            return session.syncOps().update(spaceId, keys, ops);
+            return session.syncOps().update(spaceId, singletonList(key), ops);
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -283,13 +298,14 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Execute "update or insert" request.
-     * @param keys List<?> keys
-     * @param defTuple List<?> tuple to insert (if not exists yet)
+     *
+     * @param key       the key
+     * @param defTuple  TarantoolTuple<K, V> tuple to insert (if not exists yet)
      * @param Object... ops operations for update (if tuple exists)
      */
-    public List<?> upsert(List<?> keys, List<?> defTuple, Object... ops) {
+    public List<?> upsert(K key, TarantoolTuple<K, V> defTuple, Object... ops) {
         try {
-            return session.syncOps().upsert(spaceId, keys, defTuple, ops);
+            return session.syncOps().upsert(spaceId, singletonList(key), defTuple, ops);
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -297,12 +313,13 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * Execute "delete" request.
-     * @param keys List<?> keys
+     *
+     * @param key List<?> keys
      * @return List<?> as list of actually deleted tuples.
      */
-    public List<?> delete(List<?> keys) {
+    public List<?> delete(K key) {
         try {
-            return session.syncOps().delete(spaceId, keys);
+            return session.syncOps().delete(spaceId, singletonList(key));
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -335,11 +352,26 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      */
     @Override
     public Iterator<TarantoolTuple<K, V>> iterator() {
-        // Create dummy event listener
-        TarantoolEventHandler<K, V> eventHandler = new TarantoolEventHandler<K, V>() {
+        final Iterator<?> iterator = select().iterator();
+        final TarantoolTuple<K, V> tuple = new TarantoolTuple<K, V>(this);
+        /*
+         * Select all Tarantool's tuples from Space, build iterator wrapper
+         * for iterating over selected tuples.
+         * Note: only ReadOnly mode is available, remove() is not supported.
+         */
+        return new Iterator<TarantoolTuple<K, V>>() {
+
+            @Override
+            public boolean hasNext() {
+                return iterator.hasNext();
+            }
+
+            @Override
+            public TarantoolTuple<K, V> next() {
+                tuple.assign((List<?>) iterator.next());
+                return tuple;
+            }
         };
-        // Construct TarantoolCursor, open Iterator (client-side cursor with read-only mode)
-        return new TarantoolCursor<K, V>(this, null, eventHandler).open();
     }
 
 }

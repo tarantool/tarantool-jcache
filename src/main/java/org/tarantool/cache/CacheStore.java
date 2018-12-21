@@ -62,7 +62,7 @@ public interface CacheStore<K, V> {
     /**
      * Deletes the Cache Entry using the configured CacheWriter.
      *
-     * @param key
+     * @param key of the Cache Entry to delete
      */
     public void delete(K key);
 

@@ -210,9 +210,10 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         }
 
         if (session.getSessionConfiguration() != null) {
-            internalConfiguration = getConfiguration(
-                    session.getSessionConfiguration().getCacheConfiguration(cacheName),
-                    session.getSessionConfiguration().getDefaultCacheConfiguration());
+            CompleteConfiguration<K, V> cacheConfig =
+                    session.getSessionConfiguration().getCacheConfiguration(cacheName);
+            internalConfiguration = cacheConfig != null ? cacheConfig :
+                    session.getSessionConfiguration().getDefaultCacheConfiguration();
         } else {
             internalConfiguration = null;
         }
@@ -280,25 +281,6 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                 configuration.removeCacheEntryListenerConfiguration(cacheEntryListenerConfiguration);
             }
         }
-    }
-
-    /**
-     * Selects first valid (non null) Configuration {@link Configuration} from
-     * given {@link Configuration}s
-     *
-     * @param Configuration<?,?> all available configurations
-     * @param <K>                type of keys
-     * @param <V>                type of values
-     * @return the requested implementation of {@link Configuration}
-     */
-    @SuppressWarnings("unchecked")
-    protected <C extends Configuration<K, V>> C getConfiguration(Configuration<?, ?>... configurations) {
-        for (Configuration<?, ?> configuration : configurations) {
-            if (configuration != null) {
-                return (C) configuration;
-            }
-        }
-        return null;
     }
 
     /**
@@ -1156,7 +1138,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             } catch (Exception e) {
                 cacheWriterException = new CacheWriterException("Exception during write", e);
             }
-            for (Cache.Entry<?, ?> entry : entriesToWrite) {
+            for (Cache.Entry<? extends K, ? extends V> entry : entriesToWrite) {
                 map.remove(entry.getKey());
             }
         }

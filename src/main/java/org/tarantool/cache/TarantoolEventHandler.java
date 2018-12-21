@@ -32,7 +32,6 @@ public interface TarantoolEventHandler<K, V> {
      * @param key of the entry just removed
      * @param newValue the newValue
      * @param oldValue the oldValue
-     * @throws CacheEntryListenerException if there is problem executing the listener
      */
     default void onExpired(K key, V newValue, V oldValue) {
     }
@@ -42,7 +41,6 @@ public interface TarantoolEventHandler<K, V> {
      * @param key of the entry just created
      * @param newValue the newValue
      * @param oldValue the oldValue
-     * @throws CacheEntryListenerException if there is problem executing the listener
      */
     default void onCreated(K key, V newValue, V oldValue) {
     }
@@ -53,7 +51,6 @@ public interface TarantoolEventHandler<K, V> {
      * @param key of the entry just updated
      * @param newValue the newValue
      * @param oldValue the oldValue
-     * @throws CacheEntryListenerException if there is problem executing the listener
      */
     default void onUpdated(K key, V newValue, V oldValue) {
     }
@@ -65,7 +62,6 @@ public interface TarantoolEventHandler<K, V> {
      * @param key of the entry just removed
      * @param newValue the newValue
      * @param oldValue the oldValue
-     * @throws CacheEntryListenerException if there is problem executing the listener
      */
     default void onRemoved(K key, V newValue, V oldValue) {
     }

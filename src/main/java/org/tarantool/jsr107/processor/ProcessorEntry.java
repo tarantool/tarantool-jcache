@@ -65,7 +65,6 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
    * @param key         the key for the {@link MutableEntry}
    * @param cache       the {@link NativeCache} of the {@link MutableEntry}
    *                    (may be <code>null</code>)
-   * @param dispatcher  the dispatch to capture events to dispatch
    * @param cacheLoader cacheLoader should be non-null only if configuration.isReadThrough is true.
    */
   public ProcessorEntry(K key,

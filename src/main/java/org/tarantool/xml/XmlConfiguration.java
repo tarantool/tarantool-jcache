@@ -20,6 +20,7 @@ import org.tarantool.cache.ClassLoading;
 import org.tarantool.jsr107.ExpiryPolicyBuilder;
 import org.tarantool.TarantoolClientConfig;
 
+import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
 import javax.cache.configuration.Factory;
 import javax.cache.configuration.MutableConfiguration;
@@ -291,13 +292,13 @@ public class XmlConfiguration {
    * @return the preconfigured {@link Configuration}
    *         or {@code null} if no cache-template exists
    */
-  public Configuration<?, ?> getDefaultCacheConfiguration() {
+  public <K, V> CompleteConfiguration<K, V> getDefaultCacheConfiguration() {
     if (defaultCacheTemplate == null) {
       return null;
     }
     final ClassLoader defaultClassLoader = (classLoader != null) ? classLoader : ClassLoading.getDefaultClassLoader();
     try {
-        MutableConfiguration<?,?> configuration = new MutableConfiguration<Object, Object>();
+        MutableConfiguration<K, V> configuration = new MutableConfiguration<>();
         configuration.setManagementEnabled(defaultCacheTemplate.enableManagement());
         configuration.setStatisticsEnabled(defaultCacheTemplate.enableStatistics());
         configuration.setExpiryPolicyFactory(getExpiry(defaultCacheTemplate.expiry(), defaultClassLoader));
@@ -337,8 +338,9 @@ public class XmlConfiguration {
   /**
    * @return map of the preconfigured {@link Configuration}'s
    */
-  public Configuration<?, ?> getCacheConfiguration(String aliasName) {
-    return cacheConfigurations.get(aliasName);
+  @SuppressWarnings("unchecked")
+  public <K, V> CompleteConfiguration<K, V> getCacheConfiguration(String aliasName) {
+    return (CompleteConfiguration<K, V>) cacheConfigurations.get(aliasName);
   }
 
   /**

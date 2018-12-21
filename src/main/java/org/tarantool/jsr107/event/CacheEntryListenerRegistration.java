@@ -134,13 +134,10 @@ public class CacheEntryListenerRegistration<K, V> {
       return false;
     }
     if (listener == null) {
-      if (other.listener != null) {
-        return false;
-      }
-    } else if (!listener.equals(other.listener)) {
-      return false;
+      return other.listener == null;
+    } else {
+      return listener.equals(other.listener);
     }
-    return true;
   }
 
   /**

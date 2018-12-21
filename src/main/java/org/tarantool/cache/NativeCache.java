@@ -92,7 +92,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
     /**
      * Select Tarantool's tuple and set {@link NativeCache} to it
      *
-     * @param K key which is used for select tuple
+     * @param key which is used for select tuple
      * @return true if a tuple with a given key exists
      * @throws NullPointerException if a given key is null
      */
@@ -176,7 +176,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * deleted tuple. Cursor's state is changed to CursorType.CLIENT,
      * it means that cursor is detached from the Space.
      *
-     * @param K key which is used for select tuple
+     * @param key which is used for select tuple
      * @return true if a tuple with a given key exists in space and delete operation succeed
      * @throws NullPointerException if a given key is null
      */
@@ -204,14 +204,13 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * deleted tuple. Cursor's state is changed to CursorType.CLIENT,
      * it means that cursor is detached from the Space.
      *
-     * @return true if the expired tuple successfully deleted
      * @throws IllegalStateException if cursor is not opened in server mode
      */
-    private boolean expire() {
+    private void expire() {
         if (cursorType != CursorType.SERVER) {
             throw new IllegalStateException("Cursor is not opened in Server Mode");
         }
-        return delete(tuple.getKey());
+        delete(tuple.getKey());
     }
 
     /**
@@ -409,7 +408,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * value currently mapped by the key.
      * <p>
      * If the cache is configured write-through, and this method returns true,
-     * the associated {@link CacheStorer#write(K, V)} method will be called.
+     * the associated {@link CacheStore#write(K, V)} method will be called.
      * </p>
      *
      * @param key   key with which the specified value is associated
@@ -636,13 +635,11 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         }
 
         long now = System.currentTimeMillis();
-        if (locate(key)) {
-            update(value, now, true);
-            return true;
-        } else if (insert(key, value, now, true)) {
-            return true;
+        if (!locate(key)) {
+            return insert(key, value, now, true);
         }
-        return false;
+        update(value, now, true);
+        return true;
     }
 
     /**
@@ -799,42 +796,39 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         HashSet<K> allNonExpiredKeys = new HashSet<>();
         HashSet<K> keysToDelete = new HashSet<>();
 
-        try {
-            boolean isWriteThrough = useWriteThrough && cacheStore != null;
-            for (TarantoolTuple<K, V> tuple : space) {
-                if (tuple.isExpiredAt(now)) {
-                    allExpiredKeys.add(tuple.getKey());
-                } else {
-                    allNonExpiredKeys.add(tuple.getKey());
-                }
-                if (isWriteThrough) {
-                    keysToDelete.add(tuple.getKey());
-                }
+        boolean isWriteThrough = useWriteThrough && cacheStore != null;
+        for (TarantoolTuple<K, V> tuple : space) {
+            if (tuple.isExpiredAt(now)) {
+                allExpiredKeys.add(tuple.getKey());
+            } else {
+                allNonExpiredKeys.add(tuple.getKey());
             }
-
-            //delete the entries (when there are some)
-            if (isWriteThrough && keysToDelete.size() > 0) {
-                cacheStore.deleteAll(keysToDelete);
+            if (isWriteThrough) {
+                keysToDelete.add(tuple.getKey());
             }
-
-            //remove the deleted keys that were successfully deleted from the set (only non-expired)
-            for (K key : allNonExpiredKeys) {
-                if (!keysToDelete.contains(key)) {
-                    if (delete(key)) {
-                        cacheRemovals++;
-                    }
-                }
-            }
-
-            //remove the deleted keys that were successfully deleted from the set (only expired)
-            for (K key : allExpiredKeys) {
-                if (!keysToDelete.contains(key)) {
-                    delete(key);
-                }
-            }
-        } catch (Exception e) {
-            throw e;
         }
+
+        //delete the entries (when there are some)
+        if (isWriteThrough && keysToDelete.size() > 0) {
+            cacheStore.deleteAll(keysToDelete);
+        }
+
+        //remove the deleted keys that were successfully deleted from the set (only non-expired)
+        for (K key : allNonExpiredKeys) {
+            if (!keysToDelete.contains(key)) {
+                if (delete(key)) {
+                    cacheRemovals++;
+                }
+            }
+        }
+
+        //remove the deleted keys that were successfully deleted from the set (only expired)
+        for (K key : allExpiredKeys) {
+            if (!keysToDelete.contains(key)) {
+                delete(key);
+            }
+        }
+
         return cacheRemovals;
     }
 
@@ -871,7 +865,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             HashSet<K> deletedKeys = new HashSet<>(keys);
             cacheStore.deleteAll(deletedKeys);
 
-            //At this point, deletedKeys will contain only those that were _not_ written
+            //At this point, deletedKeys will contain only those that were _not_ deleted
             //Now delete only those that the writer deleted
             for (K key : keys) {
                 //only delete those keys that the writer deleted

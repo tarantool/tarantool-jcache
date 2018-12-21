@@ -47,7 +47,7 @@ public class JavaMsgPackLite extends MsgPackLite {
     @Override
     public void pack(Object item, OutputStream os) throws IOException {
         if (item == null) {
-            super.pack(item, os);
+            super.pack(null, os);
         } else if (item instanceof Boolean) {
             super.pack(item, os);
         } else if (item instanceof Number || item instanceof Code) {
@@ -79,8 +79,6 @@ public class JavaMsgPackLite extends MsgPackLite {
         ByteArrayInputStream bos = new ByteArrayInputStream(data);
         try (ObjectInputStream ois = new ObjectInputStream(bos)) {
             return ois.readObject();
-        } catch (IOException e) {
-            throw e;
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
             return null;

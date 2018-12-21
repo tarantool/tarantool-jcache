@@ -81,34 +81,39 @@ public class TarantoolSession implements Closeable {
         int port = DEFAULT_PORT;
         TarantoolClientConfig config = new TarantoolClientConfig();
         if (uri.getScheme() != null) {
-            if (uri.getScheme().equals("file") || uri.getScheme().equals("classpath")) {
-                URL url = resolveResourcePath(uri, classLoader);
-                try {
-                    xmlConfiguration = new XmlConfiguration(url, classLoader);
-                } catch (RuntimeException e) {
-                    throw new TarantoolCacheException(e);
-                }
-            } else if (uri.getScheme().equals("http") || uri.getScheme().equals("tarantool")) {
-                /* Example: "tarantool://user:password@host:port" */
-                if (uri.getHost() == null) {
-                    throw new IllegalArgumentException("Invalid host given by URI");
-                }
-                host = uri.getHost();
-                port = uri.getPort() != -1 ? uri.getPort() : DEFAULT_PORT;
-                String userInfo = uri.getUserInfo();
-                if (userInfo != null) {
-                    // First we should check if default authentication info (user:password) is provided
-                    int pos = userInfo.indexOf(':');
-                    if (pos < 0) {
-                        config.username = userInfo;
-                    } else {
-                        config.username = userInfo.substring(0, pos);
-                        config.password = userInfo.substring(pos + 1);
+            switch (uri.getScheme()) {
+                case "file":
+                case "classpath":
+                    URL url = resolveResourcePath(uri, classLoader);
+                    try {
+                        xmlConfiguration = new XmlConfiguration(url, classLoader);
+                    } catch (RuntimeException e) {
+                        throw new TarantoolCacheException(e);
                     }
-                }
-                xmlConfiguration = null;
-            } else {
-                throw new IllegalArgumentException("Unknown scheme given with specified URI: " + uri.getScheme());
+                    break;
+                case "http":
+                case "tarantool":
+                    /* Example: "tarantool://user:password@host:port" */
+                    if (uri.getHost() == null) {
+                        throw new IllegalArgumentException("Invalid host given by URI");
+                    }
+                    host = uri.getHost();
+                    port = uri.getPort() != -1 ? uri.getPort() : DEFAULT_PORT;
+                    String userInfo = uri.getUserInfo();
+                    if (userInfo != null) {
+                        // First we should check if default authentication info (user:password) is provided
+                        int pos = userInfo.indexOf(':');
+                        if (pos < 0) {
+                            config.username = userInfo;
+                        } else {
+                            config.username = userInfo.substring(0, pos);
+                            config.password = userInfo.substring(pos + 1);
+                        }
+                    }
+                    xmlConfiguration = null;
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown scheme given with specified URI: " + uri.getScheme());
             }
         } else {
             xmlConfiguration = null;

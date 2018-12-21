@@ -79,8 +79,6 @@ public final class ExpiryPolicyBuilder implements Factory<ExpiryPolicy>{
 
   /**
    * Fluent API for creating an {@link ExpiryPolicy} instance where you can specify constant values for creation, access and update time.
-   * Unspecified values will be set to {@link ExpiryPolicy#INFINITE INFINITE} for create and {@code null} for access and update, matching
-   * the {@link #noExpiration()}  no expiration} expiry.
    *
    * @return an {@link ExpiryPolicy} builder
    */
@@ -157,7 +155,7 @@ public final class ExpiryPolicyBuilder implements Factory<ExpiryPolicy>{
     /**
      * Constructs an {@link BaseExpiryPolicy} with the given
      * creation, access and update times.
-     * 
+     *
      * @param create TTL since creation
      * @param access TTL since last access
      * @param update TTL since last update

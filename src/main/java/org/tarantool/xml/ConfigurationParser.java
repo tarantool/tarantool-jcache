@@ -405,14 +405,13 @@ class ConfigurationParser {
 
           @Override
           public String resilienceStrategy() {
-            String resilienceClass = null;
             for (BaseCacheType source : sources) {
-              resilienceClass = source.getResilience();
+              String resilienceClass = source.getResilience();
               if (resilienceClass != null) {
                 return resilienceClass;
               }
             }
-            return resilienceClass;
+            return null;
           }
 
           @Override

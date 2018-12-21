@@ -136,9 +136,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
             Map<?, ?> primary = index.get("primary");
             if (primary != null) {
                 Object indexType = primary.get("type");
-                if (indexType != null && indexType.toString().equalsIgnoreCase(DEFAULT_INDEX_TYPE)) {
-                    return true;
-                }
+                return indexType != null && indexType.toString().equalsIgnoreCase(DEFAULT_INDEX_TYPE);
             }
         }
         return false;
@@ -238,7 +236,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      */
     public List<?> next(K key) {
         try {
-            /**
+            /*
              * Adjust iterator for fetching next tuple from Tarantool's space
              * Tarantool supports different type of iteration (See TarantoolIterator),
              * but not every index (HASH, TREE, ...) supports these types.
@@ -254,7 +252,6 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     /**
      * Fetch first available tuple in this space
      *
-     * @param keys List<?> keys
      * @return List<?> as response.
      */
     public List<?> first() {
@@ -285,7 +282,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * Execute update request.
      *
      * @param key       the key
-     * @param Object... ops operations for update
+     * @param ops operations for update
      * @return List<?>  list of updated tuples.
      */
     public List<?> update(K key, Object... ops) {
@@ -301,7 +298,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      *
      * @param key       the key
      * @param defTuple  TarantoolTuple<K, V> tuple to insert (if not exists yet)
-     * @param Object... ops operations for update (if tuple exists)
+     * @param ops operations for update (if tuple exists)
      */
     public List<?> upsert(K key, TarantoolTuple<K, V> defTuple, Object... ops) {
         try {

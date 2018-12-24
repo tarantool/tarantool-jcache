@@ -49,7 +49,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      *
      * @param space {@link TarantoolSpace} where {@link TarantoolTuple} is stored.
      */
-    public TarantoolTuple(TarantoolSpace<K, V> space) {
+    TarantoolTuple(TarantoolSpace<K, V> space) {
         this.space = space;
         for (int i = 0; i < updateOperations.length; i++) {
             updateOperations[i][0] = "=";
@@ -134,7 +134,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      *
      * @return expiry time in milliseconds (since the Epoch)
      */
-    public long getExpiryTime() {
+    long getExpiryTime() {
         return Long.class.cast(values[2]);
     }
 
@@ -144,7 +144,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      *
      * @param expiryTime time in milliseconds (since the Epoch)
      */
-    public void setExpiryTime(long expiryTime) {
+    void setExpiryTime(long expiryTime) {
         values[2] = updateOperations[2][2] = expiryTime;
     }
 
@@ -155,18 +155,9 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      * @param now time in milliseconds (since the Epoch)
      * @return true if the value would be expired at the specified time
      */
-    public boolean isExpiredAt(long now) {
+    boolean isExpiredAt(long now) {
         long expiryTime = getExpiryTime();
         return expiryTime > -1 && expiryTime <= now;
-    }
-
-    /**
-     * Invalidate all the values.
-     */
-    public void invalidate() {
-        for (int i = 0; i < values.length; i++) {
-            values[i] = null;
-        }
     }
 
     /**
@@ -175,7 +166,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      * @param values to be put
      * @throws TarantoolCacheException if incorrect tuple was selected from space
      */
-    public void assign(List<?> values) {
+    void assign(List<?> values) {
         /* Check here values size, it must be same (key, value, expiryTime, sessionId, lock) */
         if (values.size() == this.size()) {
             for (int i = 0; i < this.size(); i++) {
@@ -188,32 +179,41 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
 
     /**
      * Performs the update value operation.
+     * @param value the Value
      */
-    public void updateValue() {
+    void updateValue(V value) {
+        values[1] = updateOperations[1][2] = value;
         space.update(getKey(), (Object) updateOperations[1]);
     }
 
     /**
-     * Performs the update expiryTime operation.
+     * Sets the time (since the Epoch) in milliseconds when the tuple
+     * associated with this value should be considered expired.
+     *
+     * @param expiryTime time in milliseconds (since the Epoch)
      */
-    public void updateExpiry() {
+    void updateExpiry(long expiryTime) {
+        values[2] = updateOperations[2][2] = expiryTime;
         space.update(getKey(), (Object) updateOperations[2]);
     }
 
     /**
      * Performs the full update operation (value and expiryTime).
+     * @param value the Value
+     * @param expiryTime time in milliseconds (since the Epoch)
      */
-    public void update() {
-        Object[] ops = {updateOperations[1], updateOperations[2]};
-        space.update(getKey(), ops);
+    void update(V value, long expiryTime) {
+        values[1] = updateOperations[1][2] = value;
+        values[2] = updateOperations[2][2] = expiryTime;
+        space.replace(this);
     }
 
     /**
-     * Performs the full update operation (value and expiryTime) or insert
+     * Deletes tuple from the Space.
+     * Stores fields of the deleted tuple to internal structure
      */
-    public void upsert() {
-        Object[] ops = {updateOperations[1], updateOperations[2]};
-        space.upsert(getKey(), this, ops);
+    void delete() {
+        assign((List<?>) space.delete(getKey()).iterator().next());
     }
 
     /**

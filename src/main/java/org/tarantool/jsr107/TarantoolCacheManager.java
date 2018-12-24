@@ -19,8 +19,6 @@ package org.tarantool.jsr107;
 
 import org.tarantool.cache.TarantoolSession;
 
-import org.tarantool.jsr107.TarantoolCachingProvider;
-
 import javax.cache.Cache;
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
@@ -41,7 +39,7 @@ import java.util.logging.Logger;
 /**
  * The implementation of the {@link CacheManager}.
  * TarantoolCacheManager associated with one Tarantool instance.
- * 
+ *
  * @author Yannis Cosmadopoulos
  * @author Brian Oliver
  * @author Evgeniy Zaikin
@@ -49,8 +47,8 @@ import java.util.logging.Logger;
  */
 public class TarantoolCacheManager implements CacheManager {
 
-  private static final Logger LOGGER = Logger.getLogger("javax.cache");
-  private final HashMap<String, TarantoolCache<?, ?>> caches = new HashMap<String, TarantoolCache<?, ?>>();
+  private static final Logger logger = Logger.getLogger("javax.cache");
+  private final HashMap<String, TarantoolCache<?, ?>> caches = new HashMap<>();
 
   private final TarantoolCachingProvider cachingProvider;
   private final TarantoolSession session;
@@ -87,7 +85,7 @@ public class TarantoolCacheManager implements CacheManager {
     if (classLoader == null) {
       throw new NullPointerException("No ClassLoader specified");
     }
-    this.classLoaderReference = new WeakReference<ClassLoader>(classLoader);
+    this.classLoaderReference = new WeakReference<>(classLoader);
     this.properties = new Properties();
 
     //this.properties = properties == null ? new Properties() : new Properties(properties);
@@ -118,14 +116,14 @@ public class TarantoolCacheManager implements CacheManager {
       cachingProvider.releaseCacheManager(getURI(), getClassLoader());
       ArrayList<Cache<?, ?>> cacheList;
       synchronized (caches) {
-        cacheList = new ArrayList<Cache<?, ?>>(caches.values());
+        cacheList = new ArrayList<>(caches.values());
         caches.clear();
       }
       for (Cache<?, ?> cache : cacheList) {
         try {
           cache.close();
         } catch (Exception e) {
-          getLogger().log(Level.WARNING, "Error stopping cache: " + cache, e);
+          logger.log(Level.WARNING, "Error stopping cache: " + cache, e);
         }
       }
       session.close();
@@ -182,7 +180,7 @@ public class TarantoolCacheManager implements CacheManager {
 
     synchronized (caches) {
       if (caches.get(cacheName) == null) {
-        TarantoolCache<K, V> cache = new TarantoolCache<K,V>(this, cacheName, getClassLoader(), session, configuration);
+        TarantoolCache<K, V> cache = new TarantoolCache<>(this, cacheName, session, configuration);
         caches.put(cache.getName(), cache);
         return cache;
       } else {
@@ -255,7 +253,7 @@ public class TarantoolCacheManager implements CacheManager {
   public Iterable<String> getCacheNames() {
     ensureOpen();
     synchronized (caches) {
-      HashSet<String> set = new HashSet<String>(caches.keySet());
+      HashSet<String> set = new HashSet<>(caches.keySet());
       return Collections.unmodifiableSet(set);
     }
   }
@@ -332,15 +330,6 @@ public class TarantoolCacheManager implements CacheManager {
     }
 
     throw new IllegalArgumentException("Unwapping to " + cls + " is not a supported by this implementation");
-  }
-
-  /**
-   * Obtain the logger.
-   *
-   * @return the logger.
-   */
-  Logger getLogger() {
-    return LOGGER;
   }
 
 }

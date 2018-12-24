@@ -168,13 +168,11 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
      *
      * @param cacheManager  the CacheManager that's creating the TarantoolCache
      * @param cacheName     the name of the Cache
-     * @param classLoader   the ClassLoader the TarantoolCache will use for loading classes
      * @param session       the {@link TarantoolSession} associated with cacheManager
      * @param configuration the Configuration of the Cache
      */
     TarantoolCache(TarantoolCacheManager cacheManager,
                    String cacheName,
-                   ClassLoader classLoader,
                    TarantoolSession session,
                    Configuration<K, V> configuration) {
 
@@ -200,7 +198,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         }
 
         if (this.configuration.getCacheLoaderFactory() != null) {
-            cacheLoader = (CacheLoader<K, V>) this.configuration.getCacheLoaderFactory().create();
+            cacheLoader = this.configuration.getCacheLoaderFactory().create();
         }
         @SuppressWarnings("unchecked")
         Factory<CacheWriter<K, V>> cacheWriterFactory =
@@ -225,13 +223,13 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         }
 
         //establish all of the listeners
-        listenerRegistrations = new CopyOnWriteArrayList<CacheEntryListenerRegistration<K, V>>();
+        listenerRegistrations = new CopyOnWriteArrayList<>();
         for (CacheEntryListenerConfiguration<K, V> listenerConfiguration :
                 this.configuration.getCacheEntryListenerConfigurations()) {
             createAndAddListener(listenerConfiguration);
         }
 
-        final TarantoolSpace<K, V> space = new TarantoolSpace<K, V>(session, cacheName);
+        final TarantoolSpace<K, V> space = new TarantoolSpace<>(session, cacheName);
         // Create Expire Policy Converter to convert JSR-107 Duration type to time stamp (long)
         final ExpiryPolicyConverter expiryConverter = new ExpiryPolicyConverter(expiryPolicy);
         // Event dispatcher is used for dispatching Events to all the Listeners
@@ -239,7 +237,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         // Creates CacheLoader and CacheWriter combined wrapper
         final CacheStore<K, V> cacheStore = new CacheLoaderWriter();
 
-        cache = new NativeCache<K, V>(space, expiryConverter, eventDispatcher, cacheStore);
+        cache = new NativeCache<>(space, expiryConverter, eventDispatcher, cacheStore);
 
         cacheMXBean = new TarantoolCacheMXBean<>(this);
         statistics = new TarantoolCacheStatisticsMXBean();
@@ -267,7 +265,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
 
     private void createAndAddListener(CacheEntryListenerConfiguration<K, V> listenerConfiguration) {
         CacheEntryListenerRegistration<K, V> registration = new
-                CacheEntryListenerRegistration<K, V>(listenerConfiguration);
+                CacheEntryListenerRegistration<>(listenerConfiguration);
         listenerRegistrations.add(registration);
     }
 
@@ -485,7 +483,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                 @Override
                 public void run() {
                     try {
-                        ArrayList<K> keysToLoad = new ArrayList<K>();
+                        ArrayList<K> keysToLoad = new ArrayList<>();
                         for (K key : keys) {
                             if (replaceExistingValues || !containsKey(key)) {
                                 keysToLoad.add(key);
@@ -953,7 +951,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
     public Iterator<Entry<K, V>> iterator() {
         ensureOpen();
         return new Iterator<Entry<K, V>>() {
-            private Iterator<TarantoolTuple<K, V>> iterator = cache.iterator();
+            private final Iterator<TarantoolTuple<K, V>> iterator = cache.iterator();
 
             @Override
             public boolean hasNext() {
@@ -968,7 +966,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                     statistics.increaseCacheHits(1);
                     statistics.addGetTimeNano(System.nanoTime() - start);
                 }
-                return new CacheEntry<K, V>(result.getKey(), result.getValue());
+                return new CacheEntry<>(result.getKey(), result.getValue());
             }
 
             @Override
@@ -990,7 +988,6 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         return cacheMXBean;
     }
 
-
     /**
      * @return the management bean
      */
@@ -998,11 +995,10 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         return statistics;
     }
 
-
     /**
      * Sets statistics
      */
-    public void setStatisticsEnabled(boolean enabled) {
+    void setStatisticsEnabled(boolean enabled) {
         if (enabled) {
             MBeanServerRegistrationUtility.registerCacheObject(this, Statistics);
         } else {
@@ -1011,13 +1007,12 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
         configuration.setStatisticsEnabled(enabled);
     }
 
-
     /**
      * Sets management
      *
      * @param enabled true if management should be enabled
      */
-    public void setManagementEnabled(boolean enabled) {
+    void setManagementEnabled(boolean enabled) {
         if (enabled) {
             MBeanServerRegistrationUtility.registerCacheObject(this, Configuration);
         } else {
@@ -1078,7 +1073,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
                      * and it is not associated with Tarantool's tuple.
                      * Garbage Collector will remove it sooner or later.
                      */
-                    cacheWriter.write(new CacheEntry<K, V>(key, value));
+                    cacheWriter.write(new CacheEntry<>(key, value));
                 } catch (Exception e) {
                     if (!(e instanceof CacheWriterException)) {
                         throw new CacheWriterException("Exception in CacheWriter", e);
@@ -1128,7 +1123,7 @@ public final class TarantoolCache<K, V> implements Cache<K, V> {
             for (Map.Entry<? extends K, ? extends V> entry : map.entrySet()) {
                 K key = entry.getKey();
                 V value = entry.getValue();
-                entriesToWrite.add(new CacheEntry<K, V>(key, value));
+                entriesToWrite.add(new CacheEntry<>(key, value));
             }
 
             try {

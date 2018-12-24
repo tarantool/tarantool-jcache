@@ -76,7 +76,6 @@ class ConfigurationParser {
   private static final String CORE_SCHEMA_ROOT_ELEMENT = "config";
   private static final String CORE_SCHEMA_JAXB_MODEL_PACKAGE = ConfigType.class.getPackage().getName();
 
-  private final Unmarshaller unmarshaller;
   private final ConfigType config;
 
   static String replaceProperties(String originalValue, final Properties properties) {
@@ -115,7 +114,7 @@ class ConfigurationParser {
 
     Class<ConfigType> configTypeClass = ConfigType.class;
     JAXBContext jc = JAXBContext.newInstance(CORE_SCHEMA_JAXB_MODEL_PACKAGE, configTypeClass.getClassLoader());
-    this.unmarshaller = jc.createUnmarshaller();
+    Unmarshaller unmarshaller = jc.createUnmarshaller();
     this.config = unmarshaller.unmarshal(dom, configTypeClass).getValue();
   }
 

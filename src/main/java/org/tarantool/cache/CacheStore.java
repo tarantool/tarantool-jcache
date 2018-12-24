@@ -34,7 +34,7 @@ public interface CacheStore<K, V> {
      * @return The value for the entry that is to be stored in the cache or
      * <code>null</code> if the object can't be loaded
      */
-    public V load(K key);
+    V load(K key);
 
     /**
      * Writes the Cache Entry to the configured CacheWriter.
@@ -42,7 +42,7 @@ public interface CacheStore<K, V> {
      * @param key   of the Cache Entry to write
      * @param value of the Cache Entry to write
      */
-    public void write(K key, V value);
+    void write(K key, V value);
 
     /**
      * Write the specified entries to the external resource. This method is intended
@@ -57,14 +57,14 @@ public interface CacheStore<K, V> {
      *                collection must only contain entries that were not
      *                successfully written. (see partial success above)
      */
-    public void writeAll(Map<? extends K, ? extends V> map);
+    void writeAll(Map<? extends K, ? extends V> map);
 
     /**
      * Deletes the Cache Entry using the configured CacheWriter.
      *
      * @param key of the Cache Entry to delete
      */
-    public void delete(K key);
+    void delete(K key);
 
     /**
      * Remove data and keys from the external resource for the given collection of
@@ -89,5 +89,5 @@ public interface CacheStore<K, V> {
      *             Upon return the collection must only contain the keys that were
      *             not successfully deleted. (see partial success above)
      */
-    public void deleteAll(Collection<?> keys);
+    void deleteAll(Collection<?> keys);
 }

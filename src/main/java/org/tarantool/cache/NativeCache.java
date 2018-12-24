@@ -30,7 +30,7 @@ import java.util.Set;
  */
 public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closeable {
 
-    private static enum CursorType {
+    private enum CursorType {
         UNDEFINED,
         SERVER,
         CLIENT
@@ -86,7 +86,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         this.expiryPolicy = expiryPolicy;
         this.eventHandler = eventHandler;
         this.cacheStore = cacheStore;
-        this.tuple = new TarantoolTuple<K, V>(space);
+        this.tuple = new TarantoolTuple<>(space);
     }
 
     /**
@@ -159,7 +159,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
 
         // Set cursor type to CursorType.UNDEFINED, until progress to the first entry
         cursorType = CursorType.UNDEFINED;
-        tuple.invalidate();
         return iterator;
     }
 
@@ -191,7 +190,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             cursorType = CursorType.CLIENT;
             tuple.assign((List<?>) iterator.next());
             V oldValue = tuple.getValue();
-            //TODO: check if entry was expired, and if it was - call onExpired(...) instead
             eventHandler.onRemoved(key, oldValue, oldValue);
             return true;
         }
@@ -210,7 +208,11 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         if (cursorType != CursorType.SERVER) {
             throw new IllegalStateException("Cursor is not opened in Server Mode");
         }
-        delete(tuple.getKey());
+        tuple.delete();
+        K expiredKey = tuple.getKey();
+        V expiredValue = tuple.getValue();
+        eventHandler.onExpired(expiredKey, expiredValue, expiredValue);
+        cursorType = CursorType.CLIENT;
     }
 
     /**
@@ -264,7 +266,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             throw new IllegalStateException("Cursor is not opened in Server Mode");
         }
 
-        long expiryTime = -1;
+        long expiryTime;
         // even if the tuple exists we should check whether it is not expired,
         // and if it is, we don't delete expired tuple here,
         // performing forced update with creation time instead
@@ -277,22 +279,19 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         K key = tuple.getKey();
         V oldValue = tuple.getValue();
 
-        tuple.setValue(newValue);
-
         if (expiryTime != -1) {
-            // set new calculated expiryTime
-            tuple.setExpiryTime(expiryTime);
-            // And check whether Tuple with new expiryTime becomes expired
-            // and if it is, we must delete expired tuple right here
-            if (!tuple.isExpiredAt(modificationTime)) {
-                tuple.update();
-                eventHandler.onUpdated(key, newValue, oldValue);
-            } else {
+            // Check whether Tuple with new expiryTime becomes expired
+            if (expiryTime <= modificationTime) {
+                // delete expired tuple right here
                 expire();
+            } else {
+                // set new value, set new calculated expiryTime for update
+                tuple.update(newValue, expiryTime);
+                eventHandler.onUpdated(key, newValue, oldValue);
             }
         } else {
             //leave the expiry time untouched when expiryTime is undefined
-            tuple.updateValue();
+            tuple.updateValue(newValue);
             eventHandler.onUpdated(key, newValue, oldValue);
         }
         if (useWriteThrough && cacheStore != null) {
@@ -302,6 +301,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
 
     /**
      * Updates the access time to that which is specified.
+     * If expire for access is undefined - leave untouched.
      *
      * @param accessTime the time when the value was accessed
      * @throws IllegalStateException if cursor is not opened in server mode
@@ -312,14 +312,13 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         }
         long expiryTime = expiryPolicy.getExpiryForAccess(accessTime);
         if (expiryTime != -1) {
-            // set new calculated expiryTime for access
-            tuple.setExpiryTime(expiryTime);
-            // And check whether Tuple with new expiryTime becomes expired
-            // and if it is, we must delete expired tuple right here
-            if (!tuple.isExpiredAt(accessTime)) {
-                tuple.updateExpiry();
-            } else {
+            // Check whether Tuple with new expiryTime becomes expired
+            if (expiryTime <= accessTime) {
+                // delete expired tuple right here
                 expire();
+            } else {
+                // set new calculated expiryTime for access
+                tuple.updateExpiry(expiryTime);
             }
         }
     }
@@ -663,8 +662,48 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         if (value == null) {
             throw new NullPointerException("null value specified for key " + key);
         }
-        long now = System.currentTimeMillis();
-        return !locate(key) && insert(key, value, now, true);
+
+        /*
+         * 2-Phase insert protocol.
+         */
+        long creationTime = System.currentTimeMillis();
+        cursorType = CursorType.UNDEFINED;
+        tuple.setKey(key);
+        tuple.setValue(value);
+        /* Temporary set expire time that equals to creationTime,
+         * inserting tuple is considered expired before second phase performed.
+         */
+        // TODO: use another field to store Lock state
+        tuple.setExpiryTime(creationTime);
+        try {
+            space.insert(tuple);
+        } catch (TarantoolCacheException e) {
+            return false;
+        }
+
+        long expiryTime = expiryPolicy.getExpiryForCreation(creationTime);
+        // check that new entry is not already expired, in which case it should
+        // not be added to the cache or listeners called or writers called.
+        if (expiryTime > -1 && expiryTime <= creationTime) {
+            tuple.delete();
+            return false;
+        }
+
+        if (cacheStore != null) {
+            try {
+                cacheStore.write(key, value);
+            } catch (Exception e) {
+                tuple.delete();
+                throw e;
+            }
+        }
+
+        tuple.setKey(key);
+        tuple.setValue(value);
+        tuple.updateExpiry(expiryTime);
+        cursorType = CursorType.SERVER;
+        eventHandler.onCreated(key, value, value);
+        return true;
     }
 
     /**

@@ -201,8 +201,12 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      *
      * @param key the key
      * @return List<?> as response.
+     * @throws NullPointerException if a given key is null
      */
     public List<?> select(K key) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
         try {
             int iter = org.tarantool.Iterator.EQ.getValue();
             return session.syncOps().select(spaceId, 0, singletonList(key), 0, 1, iter);
@@ -233,8 +237,12 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      *
      * @param key current tuple key
      * @return List<?> as response.
+     * @throws NullPointerException if a given key is null
      */
     public List<?> next(K key) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
         try {
             /*
              * Adjust iterator for fetching next tuple from Tarantool's space
@@ -279,13 +287,31 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     }
 
     /**
+     * Execute replace request.
+     *
+     * @param tuple List<?> tuple to replace
+     * @return List<?> list of replace tuples.
+     */
+    public List<?> replace(TarantoolTuple<K, V> tuple) {
+        try {
+            return session.syncOps().replace(spaceId, tuple);
+        } catch (Exception e) {
+            throw new TarantoolCacheException(e);
+        }
+    }
+
+    /**
      * Execute update request.
      *
      * @param key       the key
      * @param ops operations for update
      * @return List<?>  list of updated tuples.
+     * @throws NullPointerException if a given key is null
      */
     public List<?> update(K key, Object... ops) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
         try {
             return session.syncOps().update(spaceId, singletonList(key), ops);
         } catch (Exception e) {
@@ -313,8 +339,12 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      *
      * @param key List<?> keys
      * @return List<?> as list of actually deleted tuples.
+     * @throws NullPointerException if a given key is null
      */
     public List<?> delete(K key) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
         try {
             return session.syncOps().delete(spaceId, singletonList(key));
         } catch (Exception e) {
@@ -350,7 +380,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     @Override
     public Iterator<TarantoolTuple<K, V>> iterator() {
         final Iterator<?> iterator = select().iterator();
-        final TarantoolTuple<K, V> tuple = new TarantoolTuple<K, V>(this);
+        final TarantoolTuple<K, V> tuple = new TarantoolTuple<>(this);
         /*
          * Select all Tarantool's tuples from Space, build iterator wrapper
          * for iterating over selected tuples.

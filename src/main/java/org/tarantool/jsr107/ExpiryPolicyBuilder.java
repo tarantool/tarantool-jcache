@@ -187,11 +187,13 @@ public final class ExpiryPolicyBuilder implements Factory<ExpiryPolicy>{
 
       final BaseExpiryPolicy that = (BaseExpiryPolicy) o;
 
-      if (!Objects.equals(access, that.access)) return false;
-      if (!Objects.equals(create, that.create)) return false;
-      if (!Objects.equals(update, that.update)) return false;
+      if (Objects.equals(access, that.access)) {
+          if (Objects.equals(create, that.create)) {
+            return Objects.equals(update, that.update);
+          }
+      }
 
-      return true;
+      return false;
     }
 
     @Override

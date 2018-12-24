@@ -38,7 +38,7 @@ import java.util.Set;
 public final class MBeanServerRegistrationUtility {
 
   //ensure everything gets put in one MBeanServer
-  private static MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+  private static final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
 
   /**
    * The type of registered Object
@@ -96,7 +96,7 @@ public final class MBeanServerRegistrationUtility {
    */
   static boolean isRegistered(Cache<?,?> cache, ObjectNameType objectNameType) {
 
-    Set<ObjectName> registeredObjectNames = null;
+    Set<ObjectName> registeredObjectNames;
 
     ObjectName objectName = calculateObjectName(cache, objectNameType);
     registeredObjectNames = mBeanServer.queryNames(objectName, null);
@@ -113,7 +113,7 @@ public final class MBeanServerRegistrationUtility {
   public static void unregisterCacheObject(Cache<?,?> cache,
                                      ObjectNameType objectNameType) {
 
-    Set<ObjectName> registeredObjectNames = null;
+    Set<ObjectName> registeredObjectNames;
 
     ObjectName objectName = calculateObjectName(cache, objectNameType);
     registeredObjectNames = mBeanServer.queryNames(objectName, null);

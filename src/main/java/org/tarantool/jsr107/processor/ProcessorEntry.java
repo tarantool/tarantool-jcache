@@ -57,7 +57,7 @@ public class ProcessorEntry<K, V> implements MutableEntry<K, V> {
   /**
    * CacheLoader to call if getValue() would return null.
    */
-  private CacheLoader<K, V> cacheLoader;
+  private final CacheLoader<K, V> cacheLoader;
 
   /**
    * Construct a {@link MutableEntry}

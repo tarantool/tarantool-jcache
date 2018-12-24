@@ -34,12 +34,12 @@ public class CacheEntryEventFilteringIterator<K, V> implements Iterator<CacheEnt
   /**
    * The underlying iterator to filter.
    */
-  private Iterator<CacheEntryEvent<K, V>> iterator;
+  private final Iterator<CacheEntryEvent<K, V>> iterator;
 
   /**
    * The filter to apply to Cache Entry Events in the {@link Iterator}.
    */
-  private CacheEntryEventFilter<? super K, ? super V> filter;
+  private final CacheEntryEventFilter<? super K, ? super V> filter;
 
   /**
    * The next available Cache Entry Event that satisfies the filter.

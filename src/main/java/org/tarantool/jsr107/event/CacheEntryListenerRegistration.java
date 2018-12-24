@@ -33,10 +33,10 @@ import javax.cache.event.CacheEntryListener;
 public class CacheEntryListenerRegistration<K, V> {
 
   private final CacheEntryListenerConfiguration<K, V> configuration;
-  private CacheEntryListener<? super K, ? super V> listener;
-  private CacheEntryEventFilter<? super K, ? super V> filter;
-  private boolean isOldValueRequired;
-  private boolean isSynchronous;
+  private final CacheEntryListener<? super K, ? super V> listener;
+  private final CacheEntryEventFilter<? super K, ? super V> filter;
+  private final boolean isOldValueRequired;
+  private final boolean isSynchronous;
 
   /**
    * Constructs an {@link CacheEntryListenerRegistration}.

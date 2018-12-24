@@ -17,20 +17,11 @@ public class ExpiryPolicyConverter implements ExpiryTimeConverter {
 
     /**
      * Constructs an {@link ExpiryPolicyConverter}.
-     * 
+     *
      * @param expiryPolicy {@link ExpiryPolicy}
      */
     public ExpiryPolicyConverter(ExpiryPolicy expiryPolicy) {
         this.expiryPolicy = expiryPolicy;
-    }
-
-    /**
-     * The default Duration to use when a Duration can't be determined.
-     *
-     * @return the default Duration
-     */
-    protected Duration getDefaultDuration() {
-        return Duration.ETERNAL;
     }
 
     @Override
@@ -39,7 +30,8 @@ public class ExpiryPolicyConverter implements ExpiryTimeConverter {
         try {
             duration = expiryPolicy.getExpiryForCreation();
         } catch (Throwable t) {
-            duration = getDefaultDuration();
+            /* The default Duration to use when a Duration can't be determined */
+            duration = Duration.ETERNAL;
         }
         return duration.getAdjustedTime(creationTime);
     }

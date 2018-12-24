@@ -33,10 +33,10 @@ import javax.cache.event.EventType;
 public class TarantoolCacheEntryEvent<K, V> extends CacheEntryEvent<K, V> {
   private static final long serialVersionUID = 7240204723819450535L;
 
-  private K key;
-  private V value;
-  private V oldValue;
-  private boolean oldValueAvailable;
+  private final K key;
+  private final V value;
+  private final V oldValue;
+  private final boolean oldValueAvailable;
 
   /**
    * Constructs a cache entry event from a given cache as source

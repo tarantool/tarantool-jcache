@@ -58,7 +58,7 @@ public class TCKMBeanServerBuilder extends MBeanServerBuilder {
    */
   public class TarantoolMBeanServerDelegate extends MBeanServerDelegate {
 
-    private MBeanServerDelegate delegate;
+    private final MBeanServerDelegate delegate;
 
     /**
      * Constructor

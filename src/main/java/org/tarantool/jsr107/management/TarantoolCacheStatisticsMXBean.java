@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The implementation of {@link CacheStatisticsMXBean}.
- * 
+ *
  * @author Greg Luck
  * @author Evgeniy Zaikin
  */

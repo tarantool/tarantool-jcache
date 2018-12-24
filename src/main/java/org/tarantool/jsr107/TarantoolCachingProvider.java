@@ -16,8 +16,6 @@
  */
 package org.tarantool.jsr107;
 
-import org.tarantool.jsr107.TarantoolCacheManager;
-
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
 import javax.cache.configuration.OptionalFeature;
@@ -35,11 +33,11 @@ import java.util.WeakHashMap;
  * URI for each TarantoolCacheManager should be unique
  * and should consist of URI connection path to Tarantool instance:
  * tarantool://user:password@host:port
- * 
+ *
  * If password and(or) user is empty, defaults would be taken.
  * If host is empty, 'localhost' would be taken.
  * If port is empty, default Tarantool port 3301 would be taken.
- * 
+ *
  * @author Brian Oliver
  * @author Evgeniy Zaikin
  */
@@ -54,7 +52,7 @@ public class TarantoolCachingProvider implements CachingProvider {
    * Constructs an TarantoolCachingProvider.
    */
   public TarantoolCachingProvider() {
-    this.cacheManagersByClassLoader = new WeakHashMap<ClassLoader, HashMap<URI, CacheManager>>();
+    this.cacheManagersByClassLoader = new WeakHashMap<>();
   }
 
   /**
@@ -69,7 +67,7 @@ public class TarantoolCachingProvider implements CachingProvider {
     HashMap<URI, CacheManager> cacheManagersByURI = cacheManagersByClassLoader.get(managerClassLoader);
 
     if (cacheManagersByURI == null) {
-      cacheManagersByURI = new HashMap<URI, CacheManager>();
+      cacheManagersByURI = new HashMap<>();
     }
 
     CacheManager cacheManager = cacheManagersByURI.get(managerURI);
@@ -139,7 +137,7 @@ public class TarantoolCachingProvider implements CachingProvider {
   @Override
   public synchronized void close() {
     WeakHashMap<ClassLoader, HashMap<URI, CacheManager>> managersByClassLoader = this.cacheManagersByClassLoader;
-    this.cacheManagersByClassLoader = new WeakHashMap<ClassLoader, HashMap<URI, CacheManager>>();
+    this.cacheManagersByClassLoader = new WeakHashMap<>();
 
     for (ClassLoader classLoader : managersByClassLoader.keySet()) {
       for (CacheManager cacheManager : managersByClassLoader.get(classLoader).values()) {
@@ -197,7 +195,7 @@ public class TarantoolCachingProvider implements CachingProvider {
    * @param uri         the URI of the CacheManager
    * @param classLoader the ClassLoader of the CacheManager
    */
-  public synchronized void releaseCacheManager(URI uri, ClassLoader classLoader) {
+  synchronized void releaseCacheManager(URI uri, ClassLoader classLoader) {
     URI managerURI = uri == null ? getDefaultURI() : uri;
     ClassLoader managerClassLoader = classLoader == null ? getDefaultClassLoader() : classLoader;
 

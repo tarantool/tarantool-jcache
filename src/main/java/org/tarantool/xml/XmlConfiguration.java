@@ -191,7 +191,7 @@ public class XmlConfiguration {
         connectionProperties.put(socketAddress, tarantoolClientConfig);
       }
     }
-    if (connections.isEmpty()) {
+    if (connections == null || connections.isEmpty()) {
         throw new XmlConfigurationException("No connection parameters found in XML");
     }
   }
@@ -256,6 +256,7 @@ public class XmlConfiguration {
    * @throws ClassNotFoundException if a {@link java.lang.Class} declared in the XML couldn't be found
    * @throws InstantiationException if a user provided {@link java.lang.Class} couldn't get instantiated
    * @throws IllegalAccessException if a method (including constructor) couldn't be invoked on a user provided type
+   * @throws NullPointerException should the key or value type be null
    */
   public <K, V> Configuration<K, V> getCacheConfigurationFromTemplate(final String name,
                                                                       final Class<K> keyType,
@@ -275,6 +276,9 @@ public class XmlConfiguration {
     }
     if (valueType != null && cacheTemplate.valueType() != null && !valueClass.isAssignableFrom(valueType)) {
       throw new IllegalArgumentException("CacheTemplate '" + name + "' declares value type of " + cacheTemplate.valueType());
+    }
+    if (keyType == null || valueType == null) {
+      throw new NullPointerException("keyType and/or valueType can't be null");
     }
 
     MutableConfiguration<K,V> configuration = new MutableConfiguration<K, V>();

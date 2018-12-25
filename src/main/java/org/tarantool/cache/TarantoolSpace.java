@@ -200,16 +200,20 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * Execute "select" request.
      *
      * @param key the key
-     * @return List<?> as response.
+     * @return tuple
      * @throws NullPointerException if a given key is null
      */
-    public List<?> select(K key) {
+    public TarantoolTuple<K, V> select(K key) {
         if (key == null) {
             throw new NullPointerException();
         }
         try {
             int iter = org.tarantool.Iterator.EQ.getValue();
-            return session.syncOps().select(spaceId, 0, singletonList(key), 0, 1, iter);
+            List<?> response = session.syncOps().select(spaceId, 0, singletonList(key), 0, 1, iter);
+            if (response.isEmpty()) {
+                return null;
+            }
+            return new TarantoolTuple<>(this, (List<?>) response.iterator().next());
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -218,9 +222,9 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     /**
      * Select all available tuples in this space
      *
-     * @return List<?> as response.
+     * @return list of selected tuples
      */
-    public List<?> select() {
+    private List<?> select() {
         try {
             int iter = org.tarantool.Iterator.ALL.getValue();
             // Adjust max size of batch per select
@@ -303,7 +307,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     /**
      * Execute update request.
      *
-     * @param key       the key
+     * @param key the key
      * @param ops operations for update
      * @return List<?>  list of updated tuples.
      * @throws NullPointerException if a given key is null
@@ -322,9 +326,9 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     /**
      * Execute "update or insert" request.
      *
-     * @param key       the key
-     * @param defTuple  TarantoolTuple<K, V> tuple to insert (if not exists yet)
-     * @param ops operations for update (if tuple exists)
+     * @param key      the key
+     * @param defTuple TarantoolTuple<K, V> tuple to insert (if not exists yet)
+     * @param ops      operations for update (if tuple exists)
      */
     public List<?> upsert(K key, TarantoolTuple<K, V> defTuple, Object... ops) {
         try {
@@ -341,12 +345,16 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
      * @return List<?> as list of actually deleted tuples.
      * @throws NullPointerException if a given key is null
      */
-    public List<?> delete(K key) {
+    public TarantoolTuple<K, V> delete(K key) {
         if (key == null) {
             throw new NullPointerException();
         }
         try {
-            return session.syncOps().delete(spaceId, singletonList(key));
+            List<?> response = session.syncOps().delete(spaceId, singletonList(key));
+            if (response.isEmpty()) {
+                return null;
+            }
+            return new TarantoolTuple<>(this, (List<?>) response.iterator().next());
         } catch (Exception e) {
             throw new TarantoolCacheException(e);
         }
@@ -380,7 +388,6 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
     @Override
     public Iterator<TarantoolTuple<K, V>> iterator() {
         final Iterator<?> iterator = select().iterator();
-        final TarantoolTuple<K, V> tuple = new TarantoolTuple<>(this);
         /*
          * Select all Tarantool's tuples from Space, build iterator wrapper
          * for iterating over selected tuples.
@@ -395,8 +402,7 @@ public class TarantoolSpace<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
             @Override
             public TarantoolTuple<K, V> next() {
-                tuple.assign((List<?>) iterator.next());
-                return tuple;
+                return new TarantoolTuple<>(TarantoolSpace.this, (List<?>) iterator.next());
             }
         };
     }

@@ -15,31 +15,17 @@
  */
 package org.tarantool.cache;
 
-import java.io.Closeable;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.NoSuchElementException;
 import java.util.Set;
 
 /**
  * @author Evgeniy Zaikin
  */
-public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closeable {
-
-    private enum CursorType {
-        UNDEFINED,
-        SERVER,
-        CLIENT
-    }
-
-    /**
-     * The {@link CursorType} represents current state of {@link NativeCache}
-     */
-    private CursorType cursorType = CursorType.UNDEFINED;
+public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
     /**
      * The {@link TarantoolSpace} is Space representation of this cache.
@@ -62,11 +48,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
     private final CacheStore<K, V> cacheStore;
 
     /**
-     * Current tuple container, consist of key, value, expiryTime
-     */
-    private final TarantoolTuple<K, V> tuple;
-
-    /**
      * Constructs an {@link NativeCache} and bind it with an existing {@link TarantoolSpace}
      *
      * @param space        {@link TarantoolSpace} to be used with {@link NativeCache}
@@ -86,80 +67,16 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         this.expiryPolicy = expiryPolicy;
         this.eventHandler = eventHandler;
         this.cacheStore = cacheStore;
-        this.tuple = new TarantoolTuple<>(space);
-    }
-
-    /**
-     * Select Tarantool's tuple and set {@link NativeCache} to it
-     *
-     * @param key which is used for select tuple
-     * @return true if a tuple with a given key exists
-     * @throws NullPointerException if a given key is null
-     */
-    private boolean locate(K key) {
-        if (key == null) {
-            throw new NullPointerException();
-        }
-        final Iterator<?> iterator = space.select(key).iterator();
-        if (iterator.hasNext()) {
-            cursorType = CursorType.SERVER;
-            tuple.assign((List<?>) iterator.next());
-            return true;
-        }
-        cursorType = CursorType.UNDEFINED;
-        return false;
     }
 
     /**
      * Select first (top) Tarantool's tuple from Space, build iterator,
-     * which can be used to iterate next Tuple (server-side cursor).
+     * which can be used to iterate next Tuple.
      *
      * @return an Iterator.
      */
     public Iterator<TarantoolTuple<K, V>> iterator() {
-        Iterator<TarantoolTuple<K, V>> iterator = new Iterator<TarantoolTuple<K, V>>() {
-            private Iterator<?> iterator = space.first().iterator();
-            private final long now = System.currentTimeMillis();
-
-            @Override
-            public boolean hasNext() {
-                return iterator.hasNext();
-            }
-
-            @Override
-            public TarantoolTuple<K, V> next() {
-                if (iterator.hasNext()) {
-                    // It is still current tuple, parse it
-                    tuple.assign((List<?>) iterator.next());
-                    // Set cursor type to CursorType.SERVER
-                    cursorType = CursorType.SERVER;
-                    // Update tuple access time
-                    access(now);
-                    // Fetch next tuple for the future, do not parse it now
-                    iterator = space.next(tuple.getKey()).iterator();
-                    // Return current parsed tuple
-                    return tuple;
-                } else {
-                    throw new NoSuchElementException();
-                }
-            }
-
-            @Override
-            public void remove() {
-                if (cursorType != CursorType.SERVER) {
-                    throw new IllegalStateException("Must progress to the next entry to remove");
-                } else {
-                    if (cacheStore != null) {
-                        cacheStore.delete(tuple.getKey());
-                    }
-                    delete(tuple.getKey());
-                }
-            }
-        };
-
-        // Set cursor type to CursorType.UNDEFINED, until progress to the first entry
-        cursorType = CursorType.UNDEFINED;
-        return iterator;
+        return new TarantoolCursor<>(space, expiryPolicy, eventHandler, cacheStore);
     }
 
     /**
@@ -171,54 +88,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
     }
 
     /**
-     * Delete Tarantool's tuple by given key, and if succeeded set {@link NativeCache} to
-     * deleted tuple. Cursor's state is changed to CursorType.CLIENT,
-     * it means that cursor is detached from the Space.
-     *
-     * @param key which is used for select tuple
-     * @return true if a tuple with a given key exists in space and delete operation succeed
-     * @throws NullPointerException if a given key is null
-     */
-    private boolean delete(K key) {
-        if (key == null) {
-            throw new NullPointerException();
-        }
-
-        final Iterator<?> iterator = space.delete(key).iterator();
-        if (iterator.hasNext()) {
-            // Change cursor type to forbid attempt to remove tuple again
-            cursorType = CursorType.CLIENT;
-            tuple.assign((List<?>) iterator.next());
-            V oldValue = tuple.getValue();
-            eventHandler.onRemoved(key, oldValue, oldValue);
-            return true;
-        }
-        cursorType = CursorType.UNDEFINED;
-        return false;
-    }
-
-    /**
-     * Delete expired Tarantool's tuple, and if succeeded set {@link NativeCache} to
-     * deleted tuple. Cursor's state is changed to CursorType.CLIENT,
-     * it means that cursor is detached from the Space.
-     *
-     * @throws IllegalStateException if cursor is not opened in server mode
-     */
-    private void expire() {
-        if (cursorType != CursorType.SERVER) {
-            throw new IllegalStateException("Cursor is not opened in Server Mode");
-        }
-        tuple.delete();
-        K expiredKey = tuple.getKey();
-        V expiredValue = tuple.getValue();
-        eventHandler.onExpired(expiredKey, expiredValue, expiredValue);
-        cursorType = CursorType.CLIENT;
-    }
-
-    /**
-     * Perform Insert operation, and if succeeded set {@link NativeCache} to
-     * inserted tuple. Cursor's state is changed to CursorType.SERVER,
-     * it means that cursor is active and attached to the Space.
+     * Perform Insert operation.
      *
      * @param key             the key
      * @param value           the value
@@ -242,92 +112,9 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             cacheStore.write(key, value);
         }
 
-        tuple.setKey(key);
-        tuple.setValue(value);
-        tuple.setExpiryTime(expiryTime);
-
-        space.insert(tuple);
-        cursorType = CursorType.SERVER;
+        space.insert(new TarantoolTuple<>(space, key, value, expiryTime));
         eventHandler.onCreated(key, value, value);
         return true;
-    }
-
-    /**
-     * Sets the value with the additional side-effect of updating the
-     * modification time to that which is specified.
-     *
-     * @param newValue         the new value
-     * @param modificationTime the time when the value was modified
-     * @param useWriteThrough  should write-through be used if it is configured
-     * @throws IllegalStateException if cursor is not opened in server mode
-     */
-    private void update(V newValue, long modificationTime, boolean useWriteThrough) {
-        if (cursorType != CursorType.SERVER) {
-            throw new IllegalStateException("Cursor is not opened in Server Mode");
-        }
-
-        long expiryTime;
-        // even if the tuple exists we should check whether it is not expired,
-        // and if it is, we don't delete expired tuple here,
-        // performing forced update with creation time instead
-        if (tuple.isExpiredAt(modificationTime)) {
-            expiryTime = expiryPolicy.getExpiryForCreation(modificationTime);
-        } else {
-            expiryTime = expiryPolicy.getExpiryForUpdate(modificationTime);
-        }
-
-        K key = tuple.getKey();
-        V oldValue = tuple.getValue();
-
-        if (expiryTime != -1) {
-            // Check whether Tuple with new expiryTime becomes expired
-            if (expiryTime <= modificationTime) {
-                // delete expired tuple right here
-                expire();
-            } else {
-                // set new value, set new calculated expiryTime for update
-                tuple.update(newValue, expiryTime);
-                eventHandler.onUpdated(key, newValue, oldValue);
-            }
-        } else {
-            //leave the expiry time untouched when expiryTime is undefined
-            tuple.updateValue(newValue);
-            eventHandler.onUpdated(key, newValue, oldValue);
-        }
-        if (useWriteThrough && cacheStore != null) {
-            cacheStore.write(key, newValue);
-        }
-    }
-
-    /**
-     * Updates the access time to that which is specified.
-     * If expire for access is undefined - leave untouched.
-     *
-     * @param accessTime the time when the value was accessed
-     * @throws IllegalStateException if cursor is not opened in server mode
-     */
-    private void access(long accessTime) {
-        if (cursorType != CursorType.SERVER) {
-            throw new IllegalStateException("Cursor is not opened in Server Mode");
-        }
-        long expiryTime = expiryPolicy.getExpiryForAccess(accessTime);
-        if (expiryTime != -1) {
-            // Check whether Tuple with new expiryTime becomes expired
-            if (expiryTime <= accessTime) {
-                // delete expired tuple right here
-                expire();
-            } else {
-                // set new calculated expiryTime for access
-                tuple.updateExpiry(expiryTime);
-            }
-        }
-    }
-
-    /**
-     * Closes cursor, detaching from Tarantool's space
-     */
-    public void close() {
-        cursorType = CursorType.UNDEFINED;
     }
 
     /**
@@ -342,7 +129,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * @param value the value to be associated with the specified key
      * @return <tt>true</tt> if the value was replaced
      * @throws NullPointerException if key is null or if value is null
-     * @see #getAndReplace(Object, Object)
      * @see CacheStore#write
      */
     public boolean replace(K key, V value) {
@@ -354,13 +140,14 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         }
         long now = System.currentTimeMillis();
         boolean result = false;
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
         try {
-            if (locate(key) && !tuple.isExpiredAt(now)) {
-                update(value, now, true);
+            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+                entry.update(value, now);
                 result = true;
             }
         } finally {
-            close();
+            entry.unlock();
         }
         return result;
     }
@@ -376,28 +163,32 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * @throws NullPointerException if key is null or if the values are null
      */
     public int replace(K key, V oldValue, V newValue) {
+        if (key == null) {
+            throw new NullPointerException("null key specified");
+        }
         if (newValue == null) {
-            throw new NullPointerException("null newValue specified for key " + tuple.getKey());
+            throw new NullPointerException("null newValue specified for key " + key);
         }
         if (oldValue == null) {
-            throw new NullPointerException("null oldValue specified for key " + tuple.getKey());
+            throw new NullPointerException("null oldValue specified for key " + key);
         }
         long now = System.currentTimeMillis();
         int result = 0;
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
         try {
-            if (locate(key) && !tuple.isExpiredAt(now)) {
-                if (oldValue.equals(tuple.getValue())) {
-                    update(newValue, now, true);
+            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+                if (oldValue.equals(entry.getValue())) {
+                    entry.update(newValue, now);
                     result = 1;
 
                 } else {
 
-                    access(now);
+                    entry.access(now);
                     result = -1;
                 }
             }
         } finally {
-            close();
+            entry.unlock();
         }
         return result;
     }
@@ -428,14 +219,15 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         long now = System.currentTimeMillis();
 
         V result = null;
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
         try {
-            if (locate(key) && !tuple.isExpiredAt(now)) {
-                V oldValue = tuple.getValue();
-                update(value, now, true);
+            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+                V oldValue = entry.getValue();
+                entry.update(value, now);
                 result = oldValue;
             }
         } finally {
-            close();
+            entry.unlock();
         }
         return result;
     }
@@ -471,7 +263,13 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         if (cacheStore != null) {
             cacheStore.delete(key);
         }
-        return delete(key) && !tuple.isExpiredAt(now);
+        TarantoolTuple<K, V> deletedTuple = space.delete(key);
+        if (deletedTuple != null) {
+            V oldValue = deletedTuple.getValue();
+            eventHandler.onRemoved(key, oldValue, oldValue);
+            return !deletedTuple.isExpiredAt(now);
+        }
+        return false;
     }
 
     /**
@@ -484,28 +282,28 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * @throws NullPointerException if the value is null
      */
     public boolean remove(K key, V oldValue) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
         if (oldValue == null) {
-            throw new NullPointerException("null oldValue specified for key " + tuple.getKey());
+            throw new NullPointerException("null oldValue specified for key " + key);
         }
+        boolean result = false;
         long now = System.currentTimeMillis();
-
-        if (locate(key) && !tuple.isExpiredAt(now)) {
-            if (oldValue.equals(tuple.getValue())) {
-                if (cacheStore != null) {
-                    cacheStore.delete(tuple.getKey());
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        try {
+            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+                if (oldValue.equals(entry.getValue())) {
+                    entry.delete();
+                    result = true;
+                } else {
+                    entry.access(now);
                 }
-                delete(tuple.getKey());
-                return true;
-
-            } else {
-
-                access(now);
-                close();
-                return false;
             }
+        } finally {
+            entry.unlock();
         }
-        close();
-        return false;
+        return result;
     }
 
     /**
@@ -520,13 +318,8 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             throw new NullPointerException();
         }
         long now = System.currentTimeMillis();
-        boolean result;
-        try {
-            result = locate(key) && !tuple.isExpiredAt(now);
-        } finally {
-            close();
-        }
-        return result;
+        TarantoolTuple<K, V> tuple = space.select(key);
+        return tuple != null && !tuple.isExpiredAt(now);
     }
 
     /**
@@ -547,8 +340,11 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         if (cacheStore != null) {
             cacheStore.delete(key);
         }
-        if (delete(key) && !tuple.isExpiredAt(now)) {
-            return tuple.getValue();
+        TarantoolTuple<K, V> tuple = space.delete(key);
+        if (tuple != null && !tuple.isExpiredAt(now)) {
+            V oldValue = tuple.getValue();
+            eventHandler.onRemoved(key, oldValue, oldValue);
+            return oldValue;
         }
         return null;
     }
@@ -589,8 +385,9 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             V value = entry.getValue();
 
             if (replaceExistingValues) {
-                if (locate(key)) {
-                    update(value, now, false);
+                TarantoolEntry<K, V> entryToLoad = new TarantoolEntry<>(space, expiryPolicy, eventHandler, null);
+                if (entryToLoad.tryLock(key)) {
+                    entryToLoad.update(value, now);
                     putCount++;
                 } else if (insert(key, value, now, false)) {
                     putCount++;
@@ -608,9 +405,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * Associates the specified value with the specified key in the cache.
      * <p>
      * If the cache previously contained a mapping for the key, the old
-     * value is replaced by the specified value.  (A cache <tt>c</tt> is said to
-     * contain a mapping for a key <tt>k</tt> if and only if {@link
-     * #containsKey(Object) c.containsKey(k)} would return <tt>true</tt>.)
+     * value is replaced by the specified value.
      * <p>
      * If the cache is configured write-through the
      * {@link CacheStore#write(K, V)} method will be called.
@@ -620,9 +415,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * @param value value to be associated with the specified key
      * @return <tt>true</tt> if the value was set
      * @throws NullPointerException if key is null or if value is null
-     * @see java.util.Map#put(Object, Object)
-     * @see #getAndPut(Object, Object)
-     * @see #getAndReplace(Object, Object)
      * @see CacheStore#write
      */
     public boolean put(K key, V value) {
@@ -634,11 +426,12 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         }
 
         long now = System.currentTimeMillis();
-        if (!locate(key)) {
-            return insert(key, value, now, true);
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        if (entry.tryLock(key)) {
+            entry.update(value, now);
+            return true;
         }
-        update(value, now, true);
-        return true;
+        return insert(key, value, now, true);
     }
 
     /**
@@ -665,16 +458,12 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
 
         /*
          * 2-Phase insert protocol.
-         */
-        long creationTime = System.currentTimeMillis();
-        cursorType = CursorType.UNDEFINED;
-        tuple.setKey(key);
-        tuple.setValue(value);
-        /* Temporary set expire time that equals to creationTime,
+         * Temporary set expire time that equals to creationTime,
          * inserting tuple is considered expired before second phase performed.
          */
+        long creationTime = System.currentTimeMillis();
+        TarantoolTuple<K, V> tuple = new TarantoolTuple<>(space, key, value, creationTime);
         // TODO: use another field to store Lock state
-        tuple.setExpiryTime(creationTime);
         try {
             space.insert(tuple);
         } catch (TarantoolCacheException e) {
@@ -685,7 +474,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         // check that new entry is not already expired, in which case it should
         // not be added to the cache or listeners called or writers called.
         if (expiryTime > -1 && expiryTime <= creationTime) {
-            tuple.delete();
+            space.delete(key);
             return false;
         }
 
@@ -693,15 +482,12 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             try {
                 cacheStore.write(key, value);
             } catch (Exception e) {
-                tuple.delete();
+                space.delete(key);
                 throw e;
             }
         }
 
-        tuple.setKey(key);
-        tuple.setValue(value);
         tuple.updateExpiry(expiryTime);
-        cursorType = CursorType.SERVER;
         eventHandler.onCreated(key, value, value);
         return true;
     }
@@ -715,13 +501,18 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      *
      * @param key the key of the entry to get from the cache
      * @return the value loaded
+     * @throws NullPointerException if key is null
      */
     public V get(K key) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
         long now = System.currentTimeMillis();
 
         V value = null;
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, null);
         try {
-            if (!locate(key)) {
+            if (!entry.tryLock(key)) {
 
                 if (cacheStore != null) {
                     value = cacheStore.load(key);
@@ -731,25 +522,25 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
                     insert(key, value, now, false);
                 }
 
-            } else if (tuple.isExpiredAt(now)) {
+            } else if (entry.isExpiredAt(now)) {
 
                 if (cacheStore != null) {
                     value = cacheStore.load(key);
                 }
 
                 if (value != null) {
-                    update(value, now, false);
+                    entry.update(value, now);
                 } else {
-                    expire();
+                    entry.expire();
                 }
 
             } else {
-                access(now);
-                return tuple.getValue();
+                entry.access(now);
+                return entry.getValue();
             }
 
         } finally {
-            close();
+            entry.unlock();
         }
         return value;
     }
@@ -759,10 +550,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * returning an existing value if one existed.
      * <p>
      * If the cache previously contained a mapping for
-     * the key, the old value is replaced by the specified value.  (A cache
-     * <tt>c</tt> is said to contain a mapping for a key <tt>k</tt> if and only
-     * if {@link #containsKey(Object) c.containsKey(k)} would return
-     * <tt>true</tt>.)
+     * the key, the old value is replaced by the specified value.
      * <p>
      * The previous value is returned, or null if there was no value associated
      * with the key previously.</p>
@@ -776,8 +564,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * @return the value associated with the key at the start of the operation or
      * null if none was associated
      * @throws NullPointerException if key is null or if value is null
-     * @see #put(Object, Object)
-     * @see #getAndReplace(Object, Object)
      * @see CacheStore#write
      */
     public V getAndPut(K key, V value) {
@@ -791,19 +577,18 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         long now = System.currentTimeMillis();
 
         V result = null;
-        try {
-
-            if (locate(key)) {
-                if (!tuple.isExpiredAt(now)) {
-                    result = tuple.getValue();
+        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        if (entry.tryLock(key)) {
+            try {
+                if (!entry.isExpiredAt(now)) {
+                    result = entry.getValue();
                 }
-                update(value, now, true);
-            } else {
-                insert(key, value, now, true);
+                entry.update(value, now);
+            } finally {
+                entry.unlock();
             }
-
-        } finally {
-            close();
+        } else {
+            insert(key, value, now, true);
         }
         return result;
     }
@@ -825,7 +610,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      *
      * @param useWriteThrough should write-through be used if it is configured
      * @return removals count
-     * @see #clear()
      * @see CacheStore#deleteAll
      */
     public int removeAll(final boolean useWriteThrough) {
@@ -855,7 +639,10 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         //remove the deleted keys that were successfully deleted from the set (only non-expired)
         for (K key : allNonExpiredKeys) {
             if (!keysToDelete.contains(key)) {
-                if (delete(key)) {
+                TarantoolTuple<K, V> deletedTuple = space.delete(key);
+                if (deletedTuple != null) {
+                    V oldValue = deletedTuple.getValue();
+                    eventHandler.onRemoved(key, oldValue, oldValue);
                     cacheRemovals++;
                 }
             }
@@ -864,7 +651,11 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         //remove the deleted keys that were successfully deleted from the set (only expired)
         for (K key : allExpiredKeys) {
             if (!keysToDelete.contains(key)) {
-                delete(key);
+                TarantoolTuple<K, V> deletedTuple = space.delete(key);
+                if (deletedTuple != null) {
+                    V oldValue = deletedTuple.getValue();
+                    eventHandler.onRemoved(key, oldValue, oldValue);
+                }
             }
         }
 
@@ -909,7 +700,10 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
             for (K key : keys) {
                 //only delete those keys that the writer deleted
                 if (!deletedKeys.contains(key)) {
-                    if (delete(key)) {
+                    TarantoolTuple<K, V> deletedTuple = space.delete(key);
+                    if (deletedTuple != null) {
+                        V oldValue = deletedTuple.getValue();
+                        eventHandler.onRemoved(key, oldValue, oldValue);
                         cacheRemovals++;
                     }
                 }
@@ -917,7 +711,10 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
         } else {
 
             for (K key : keys) {
-                if (delete(key)) {
+                TarantoolTuple<K, V> deletedTuple = space.delete(key);
+                if (deletedTuple != null) {
+                    V oldValue = deletedTuple.getValue();
+                    eventHandler.onRemoved(key, oldValue, oldValue);
                     cacheRemovals++;
                 }
             }
@@ -933,6 +730,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
      * @param operation {@link MutableEntryOperation} that defines operation
      * @param key       the key to the entry
      * @param newValue  the newValue to be set
+     * @throws NullPointerException if key is null
      */
     public void invoke(MutableEntryOperation operation, K key, V newValue) {
         if (key == null) {
@@ -948,16 +746,20 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>>, Closea
                 break;
 
             case LOAD:
-                if (locate(key)) {
-                    update(newValue, now, false);
+                TarantoolEntry<K, V> entryToLoad = new TarantoolEntry<>(space, expiryPolicy, eventHandler, null);
+                if (entryToLoad.tryLock(key)) {
+                    entryToLoad.update(newValue, now);
+                    entryToLoad.unlock();
                 } else {
                     insert(key, newValue, now, false);
                 }
                 break;
 
             case UPDATE:
-                if (locate(key)) {
-                    update(newValue, now, true);
+                TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+                if (entry.tryLock(key)) {
+                    entry.update(newValue, now);
+                    entry.unlock();
                 }
                 break;
 

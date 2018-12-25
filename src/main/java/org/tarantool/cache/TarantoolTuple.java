@@ -48,12 +48,52 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      * Constructs an {@link TarantoolTuple}
      *
      * @param space {@link TarantoolSpace} where {@link TarantoolTuple} is stored.
+     * @throws NullPointerException if a given space is null
      */
     TarantoolTuple(TarantoolSpace<K, V> space) {
+        if (space == null) {
+            throw new NullPointerException();
+        }
         this.space = space;
         for (int i = 0; i < updateOperations.length; i++) {
             updateOperations[i][0] = "=";
             updateOperations[i][1] = i;
+        }
+    }
+
+    /**
+     * Constructs an {@link TarantoolTuple}
+     *
+     * @param space      {@link TarantoolSpace} where {@link TarantoolTuple} is stored.
+     * @param key        the key
+     * @param value      the value
+     * @param expiryTime time in milliseconds (since the Epoch)
+     * @throws NullPointerException if a given space is null
+     */
+    TarantoolTuple(TarantoolSpace<K, V> space, K key, V value, long expiryTime) {
+        this(space);
+        setKey(key);
+        setValue(value);
+        setExpiryTime(expiryTime);
+    }
+
+    /**
+     * Constructs an {@link TarantoolTuple} and sets values from given
+     *
+     * @param space  {@link TarantoolSpace} where {@link TarantoolTuple} is stored.
+     * @param values to be put
+     * @throws NullPointerException    if a given space is null
+     * @throws TarantoolCacheException if incorrect tuple was selected from space
+     */
+    TarantoolTuple(TarantoolSpace<K, V> space, List<?> values) {
+        this(space);
+        /* Check here values size, it must be same (key, value, expiryTime, sessionId, lock) */
+        if (values.size() == this.size()) {
+            for (int i = 0; i < this.size(); i++) {
+                updateOperations[i][2] = this.values[i] = values.get(i);
+            }
+        } else {
+            throw new TarantoolCacheException("Incorrect tuple given");
         }
     }
 
@@ -161,23 +201,6 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
     }
 
     /**
-     * Puts given values to the current {@link TarantoolTuple}.
-     *
-     * @param values to be put
-     * @throws TarantoolCacheException if incorrect tuple was selected from space
-     */
-    void assign(List<?> values) {
-        /* Check here values size, it must be same (key, value, expiryTime, sessionId, lock) */
-        if (values.size() == this.size()) {
-            for (int i = 0; i < this.size(); i++) {
-                updateOperations[i][2] = this.values[i] = values.get(i);
-            }
-        } else {
-            throw new TarantoolCacheException("Incorrect tuple given");
-        }
-    }
-
-    /**
      * Performs the update value operation.
      * @param value the Value
      */
@@ -199,21 +222,13 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
 
     /**
      * Performs the full update operation (value and expiryTime).
-     * @param value the Value
+     * @param value      the Value
      * @param expiryTime time in milliseconds (since the Epoch)
      */
     void update(V value, long expiryTime) {
         values[1] = updateOperations[1][2] = value;
         values[2] = updateOperations[2][2] = expiryTime;
         space.replace(this);
-    }
-
-    /**
-     * Deletes tuple from the Space.
-     * Stores fields of the deleted tuple to internal structure
-     */
-    void delete() {
-        assign((List<?>) space.delete(getKey()).iterator().next());
     }
 
     /**

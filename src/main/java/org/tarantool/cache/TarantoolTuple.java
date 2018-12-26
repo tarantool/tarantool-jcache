@@ -20,6 +20,18 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+ * TarantoolTuple is friendly implementation of {@link List}.
+ * Provides easy-used methods to get and set key, value to appropriate position,
+ * instead of using index-based getters setters.
+ * Of course implements index-based getters to be used outside -
+ * from TarantoolConnector.
+ * Also incorporate an array of "update" operation.
+ *
+ * @param <K> the type of keys
+ * @param <V> the type of values
+ * @author Evgeniy Zaikin
+ */
 public class TarantoolTuple<K, V> extends AbstractList<Object> {
 
     /**
@@ -75,6 +87,22 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
         setKey(key);
         setValue(value);
         setExpiryTime(expiryTime);
+    }
+
+    /**
+     * Constructs an {@link TarantoolTuple}
+     *
+     * @param space {@link TarantoolSpace} where {@link TarantoolTuple} is stored.
+     * @param key   the key
+     * @throws NullPointerException if a given space is null
+     * @throws NullPointerException if a given key is null
+     */
+    TarantoolTuple(TarantoolSpace<K, V> space, K key) {
+        this(space);
+        if (key == null) {
+            throw new NullPointerException();
+        }
+        setKey(key);
     }
 
     /**
@@ -202,6 +230,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
 
     /**
      * Performs the update value operation.
+     *
      * @param value the Value
      */
     void updateValue(V value) {
@@ -221,13 +250,44 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
     }
 
     /**
+     * Locks the tuple.
+     *
+     * @return locked tuple if succeeded, {@code null} otherwise
+     */
+    TarantoolTuple<K, V> lock() {
+        values[3] = updateOperations[3][2] = true;
+        List<?> response = space.update(getKey(), (Object) updateOperations[3]);
+        if (response.isEmpty()) {
+            return null;
+        }
+        return new TarantoolTuple<>(space, (List<?>) response.iterator().next());
+    }
+
+    /**
+     * Tries to insert and lock the tuple.
+     *
+     * @return this tuple if succeeded, {@code null} otherwise
+     */
+    TarantoolTuple<K, V> tryLock() {
+        values[3] = updateOperations[3][2] = true;
+        try {
+            space.insert(this);
+            return this;
+        } catch (TarantoolCacheException e) {
+            return null;
+        }
+    }
+
+    /**
      * Performs the full update operation (value and expiryTime).
+     *
      * @param value      the Value
      * @param expiryTime time in milliseconds (since the Epoch)
      */
     void update(V value, long expiryTime) {
         values[1] = updateOperations[1][2] = value;
         values[2] = updateOperations[2][2] = expiryTime;
+        values[3] = updateOperations[3][2] = null;
         space.replace(this);
     }
 

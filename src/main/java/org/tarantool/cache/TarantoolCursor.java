@@ -19,6 +19,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+/**
+ * An {@link Iterator} over {@link TarantoolTuple}s that lazily selects
+ * tuple from {@link TarantoolSpace}, updates expire time for access.
+ * If tuple is expired - deletes it.
+ * Used as server side cursor.
+ *
+ * @param <K> the type of keys
+ * @param <V> the type of values
+ * @author Evgeniy Zaikin
+ */
 public class TarantoolCursor<K, V> implements Iterator<TarantoolTuple<K, V>> {
 
     /**

@@ -15,9 +15,16 @@
  */
 package org.tarantool.cache;
 
-import java.util.Arrays;
-import java.util.List;
-
+/**
+ * TarantoolEntry provides functional over the {@link TarantoolTuple},
+ * receives expiryTime from {@link ExpiryTimeConverter}.
+ * Push, update, commit methods can be used with or without write-through.
+ * If write-through is used - method calls {@link CacheStore#write}.
+ *
+ * @param <K> the type of keys
+ * @param <V> the type of values
+ * @author Evgeniy Zaikin
+ */
 public class TarantoolEntry<K, V> {
 
     /**
@@ -70,19 +77,67 @@ public class TarantoolEntry<K, V> {
     /**
      * Try lock tuple.
      *
+     * @param key the key to be locked
      * @return true if tuple with given key exists.
+     * @throws NullPointerException if a given key is null
+     */
+    boolean lock(K key) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
+        tuple = new TarantoolTuple<>(space, key).lock();
+        return tuple != null;
+    }
+
+    /**
+     * Try insert tuple and lock it in one step.
+     *
+     * @param key the key to be locked
+     * @return true if tuple with given key inserted and locked.
      * @throws NullPointerException if a given key is null
      */
     boolean tryLock(K key) {
         if (key == null) {
             throw new NullPointerException();
         }
-        // TODO: move update operation array to TarantoolTuple implementation
-        List<?> response = space.update(key, (Object) Arrays.asList("=", 3, true));
-        if (response.isEmpty()) {
+        tuple = new TarantoolTuple<>(space, key).tryLock();
+        return tuple != null;
+    }
+
+    /**
+     * Performs the full update operation (value and expiryTime).
+     *
+     * @param value        the Value
+     * @param creationTime time in milliseconds (since the Epoch)
+     * @throws IllegalStateException if tuple is not locked
+     */
+    boolean commit(V value, long creationTime) {
+        if (tuple == null) {
+            throw new IllegalStateException("Cannot update the tuple, tuple is not locked");
+        }
+        K key = tuple.getKey();
+        long expiryTime = expiryPolicy.getExpiryForCreation(creationTime);
+        // check that new entry is not already expired, in which case it should
+        // not be added to the cache or listeners called or writers called.
+        if (expiryTime > -1 && expiryTime <= creationTime) {
+            space.delete(key);
+            unlock();
             return false;
         }
-        tuple = new TarantoolTuple<>(space, (List<?>) response.iterator().next());
+
+        if (cacheStore != null) {
+            try {
+                cacheStore.write(key, value);
+            } catch (Exception e) {
+                space.delete(key);
+                unlock();
+                throw e;
+            }
+        }
+
+        tuple.update(value, expiryTime);
+        eventHandler.onCreated(key, value, value);
+        unlock();
         return true;
     }
 
@@ -106,6 +161,35 @@ public class TarantoolEntry<K, V> {
             throw new IllegalStateException("Cannot update the tuple, tuple is not locked");
         }
         return tuple.isExpiredAt(now);
+    }
+
+    /**
+     * Inserts the tuple in one step without any lock.
+     *
+     * @param key          the key
+     * @param value        the value
+     * @param creationTime the time when the cache entry was created
+     * @return true if newly created value hasn't already expired, false otherwise
+     * @throws NullPointerException if a given key is null
+     */
+    boolean push(K key, V value, long creationTime) {
+        if (key == null) {
+            throw new NullPointerException();
+        }
+        long expiryTime = expiryPolicy.getExpiryForCreation(creationTime);
+        // check that new entry is not already expired, in which case it should
+        // not be added to the cache or listeners called or writers called.
+        if (expiryTime > -1 && expiryTime <= creationTime) {
+            return false;
+        }
+
+        if (cacheStore != null) {
+            cacheStore.write(key, value);
+        }
+
+        space.insert(new TarantoolTuple<>(space, key, value, expiryTime));
+        eventHandler.onCreated(key, value, value);
+        return true;
     }
 
     /**

@@ -48,6 +48,11 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
     private final CacheStore<K, V> cacheStore;
 
     /**
+     * The {@link TarantoolEntryManager} is used as a Factory for construct an {@link TarantoolEntry}
+     */
+    private final TarantoolEntryManager entryManager;
+
+    /**
      * Constructs an {@link NativeCache} and bind it with an existing {@link TarantoolSpace}
      *
      * @param space        {@link TarantoolSpace} to be used with {@link NativeCache}
@@ -67,6 +72,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         this.expiryPolicy = expiryPolicy;
         this.eventHandler = eventHandler;
         this.cacheStore = cacheStore;
+        this.entryManager = new TarantoolEntryManager();
     }
 
     /**
@@ -85,36 +91,6 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
      */
     public void clear() {
         space.truncate();
-    }
-
-    /**
-     * Perform Insert operation.
-     *
-     * @param key             the key
-     * @param value           the value
-     * @param creationTime    the time when the cache entry was created
-     * @param useWriteThrough should write-through be used if it is configured
-     * @return true if newly created value hasn't already expired, false otherwise
-     * @throws NullPointerException if a given key is null
-     */
-    private boolean insert(K key, V value, long creationTime, boolean useWriteThrough) {
-        if (key == null) {
-            throw new NullPointerException();
-        }
-        long expiryTime = expiryPolicy.getExpiryForCreation(creationTime);
-        // check that new entry is not already expired, in which case it should
-        // not be added to the cache or listeners called or writers called.
-        if (expiryTime > -1 && expiryTime <= creationTime) {
-            return false;
-        }
-
-        if (useWriteThrough && cacheStore != null) {
-            cacheStore.write(key, value);
-        }
-
-        space.insert(new TarantoolTuple<>(space, key, value, expiryTime));
-        eventHandler.onCreated(key, value, value);
-        return true;
     }
 
     /**
@@ -140,9 +116,9 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         }
         long now = System.currentTimeMillis();
         boolean result = false;
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        TarantoolEntry<K, V> entry = entryManager.get(true);
         try {
-            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+            if (entry.lock(key) && !entry.isExpiredAt(now)) {
                 entry.update(value, now);
                 result = true;
             }
@@ -174,9 +150,9 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         }
         long now = System.currentTimeMillis();
         int result = 0;
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        TarantoolEntry<K, V> entry = entryManager.get(true);
         try {
-            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+            if (entry.lock(key) && !entry.isExpiredAt(now)) {
                 if (oldValue.equals(entry.getValue())) {
                     entry.update(newValue, now);
                     result = 1;
@@ -219,9 +195,9 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         long now = System.currentTimeMillis();
 
         V result = null;
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        TarantoolEntry<K, V> entry = entryManager.get(true);
         try {
-            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+            if (entry.lock(key) && !entry.isExpiredAt(now)) {
                 V oldValue = entry.getValue();
                 entry.update(value, now);
                 result = oldValue;
@@ -290,9 +266,9 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         }
         boolean result = false;
         long now = System.currentTimeMillis();
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
+        TarantoolEntry<K, V> entry = entryManager.get(true);
         try {
-            if (entry.tryLock(key) && !entry.isExpiredAt(now)) {
+            if (entry.lock(key) && !entry.isExpiredAt(now)) {
                 if (oldValue.equals(entry.getValue())) {
                     entry.delete();
                     result = true;
@@ -384,16 +360,16 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
             K key = entry.getKey();
             V value = entry.getValue();
 
+            TarantoolEntry<K, V> entryToLoad = entryManager.get(false);
             if (replaceExistingValues) {
-                TarantoolEntry<K, V> entryToLoad = new TarantoolEntry<>(space, expiryPolicy, eventHandler, null);
-                if (entryToLoad.tryLock(key)) {
+                if (entryToLoad.lock(key)) {
                     entryToLoad.update(value, now);
                     putCount++;
-                } else if (insert(key, value, now, false)) {
+                } else if (entryToLoad.push(key, value, now)) {
                     putCount++;
                 }
             } else {
-                if (insert(key, value, now, false)) {
+                if (entryToLoad.push(key, value, now)) {
                     putCount++;
                 }
             }
@@ -426,12 +402,12 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         }
 
         long now = System.currentTimeMillis();
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
-        if (entry.tryLock(key)) {
+        TarantoolEntry<K, V> entry = entryManager.get(true);
+        if (entry.lock(key)) {
             entry.update(value, now);
             return true;
         }
-        return insert(key, value, now, true);
+        return entry.push(key, value, now);
     }
 
     /**
@@ -462,34 +438,11 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
          * inserting tuple is considered expired before second phase performed.
          */
         long creationTime = System.currentTimeMillis();
-        TarantoolTuple<K, V> tuple = new TarantoolTuple<>(space, key, value, creationTime);
-        // TODO: use another field to store Lock state
-        try {
-            space.insert(tuple);
-        } catch (TarantoolCacheException e) {
-            return false;
+        TarantoolEntry<K, V> entry = entryManager.get(true);
+        if (entry.tryLock(key)) {
+            return entry.commit(value, creationTime);
         }
-
-        long expiryTime = expiryPolicy.getExpiryForCreation(creationTime);
-        // check that new entry is not already expired, in which case it should
-        // not be added to the cache or listeners called or writers called.
-        if (expiryTime > -1 && expiryTime <= creationTime) {
-            space.delete(key);
-            return false;
-        }
-
-        if (cacheStore != null) {
-            try {
-                cacheStore.write(key, value);
-            } catch (Exception e) {
-                space.delete(key);
-                throw e;
-            }
-        }
-
-        tuple.updateExpiry(expiryTime);
-        eventHandler.onCreated(key, value, value);
-        return true;
+        return false;
     }
 
     /**
@@ -510,16 +463,16 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         long now = System.currentTimeMillis();
 
         V value = null;
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, null);
+        TarantoolEntry<K, V> entry = entryManager.get(false);
         try {
-            if (!entry.tryLock(key)) {
+            if (!entry.lock(key)) {
 
                 if (cacheStore != null) {
                     value = cacheStore.load(key);
                 }
 
                 if (value != null) {
-                    insert(key, value, now, false);
+                    entry.push(key, value, now);
                 }
 
             } else if (entry.isExpiredAt(now)) {
@@ -577,8 +530,8 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         long now = System.currentTimeMillis();
 
         V result = null;
-        TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
-        if (entry.tryLock(key)) {
+        TarantoolEntry<K, V> entry = entryManager.get(true);
+        if (entry.lock(key)) {
             try {
                 if (!entry.isExpiredAt(now)) {
                     result = entry.getValue();
@@ -588,7 +541,7 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
                 entry.unlock();
             }
         } else {
-            insert(key, value, now, true);
+            entry.push(key, value, now);
         }
         return result;
     }
@@ -736,28 +689,28 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
         if (key == null) {
             throw new NullPointerException("null key specified");
         }
+        TarantoolEntry<K, V> entry = entryManager.get(true);
         long now = System.currentTimeMillis();
         switch (operation) {
             case NONE:
                 break;
 
             case CREATE:
-                insert(key, newValue, now, true);
+                entry.push(key, newValue, now);
                 break;
 
             case LOAD:
-                TarantoolEntry<K, V> entryToLoad = new TarantoolEntry<>(space, expiryPolicy, eventHandler, null);
-                if (entryToLoad.tryLock(key)) {
+                TarantoolEntry<K, V> entryToLoad = entryManager.get(false);
+                if (entryToLoad.lock(key)) {
                     entryToLoad.update(newValue, now);
                     entryToLoad.unlock();
                 } else {
-                    insert(key, newValue, now, false);
+                    entryToLoad.push(key, newValue, now);
                 }
                 break;
 
             case UPDATE:
-                TarantoolEntry<K, V> entry = new TarantoolEntry<>(space, expiryPolicy, eventHandler, cacheStore);
-                if (entry.tryLock(key)) {
+                if (entry.lock(key)) {
                     entry.update(newValue, now);
                     entry.unlock();
                 }
@@ -769,6 +722,22 @@ public class NativeCache<K, V> implements Iterable<TarantoolTuple<K, V>> {
 
             default:
                 break;
+        }
+    }
+
+    /**
+     * This class is used as a Factory for construct an {@link TarantoolEntry}
+     */
+    private class TarantoolEntryManager {
+
+        /**
+         * Constructs an {@link TarantoolEntry}
+         *
+         * @param useCacheStore if true, use write-through in cache operations such update
+         */
+        TarantoolEntry<K, V> get(boolean useCacheStore) {
+            return new TarantoolEntry<>(space, expiryPolicy, eventHandler,
+                    useCacheStore ? cacheStore : null);
         }
     }
 }

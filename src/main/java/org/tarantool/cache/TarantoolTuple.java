@@ -22,11 +22,8 @@ import java.util.List;
 
 /**
  * TarantoolTuple is friendly implementation of {@link List}.
- * Provides easy-used methods to get and set key, value to appropriate position,
- * instead of using index-based getters setters.
- * Of course implements index-based getters to be used outside -
- * from TarantoolConnector.
- * Also incorporate an array of "update" operation.
+ * Implements index-based getters to be used outside.
+ * Provides easy-used methods to get and set field to appropriate position.
  *
  * @param <K> the type of keys
  * @param <V> the type of values
@@ -254,7 +251,7 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
      *
      * @return locked tuple if succeeded, {@code null} otherwise
      */
-    TarantoolTuple<K, V> lock() {
+    TarantoolTuple<K, V> tryLock() {
         values[3] = updateOperations[3][2] = true;
         List<?> response = space.update(getKey(), (Object) updateOperations[3]);
         if (response.isEmpty()) {
@@ -266,15 +263,15 @@ public class TarantoolTuple<K, V> extends AbstractList<Object> {
     /**
      * Tries to insert and lock the tuple.
      *
-     * @return this tuple if succeeded, {@code null} otherwise
+     * @return true if succeeded
      */
-    TarantoolTuple<K, V> tryLock() {
+    boolean tryPush() {
         values[3] = updateOperations[3][2] = true;
         try {
             space.insert(this);
-            return this;
+            return true;
         } catch (TarantoolCacheException e) {
-            return null;
+            return false;
         }
     }
 

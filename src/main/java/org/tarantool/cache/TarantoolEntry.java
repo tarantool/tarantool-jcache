@@ -18,7 +18,7 @@ package org.tarantool.cache;
 /**
  * TarantoolEntry provides functional over the {@link TarantoolTuple},
  * receives expiryTime from {@link ExpiryTimeConverter}.
- * Push, update, commit methods can be used with or without write-through.
+ * Push, update methods can be used with or without write-through.
  * If write-through is used - method calls {@link CacheStore#write}.
  *
  * @param <K> the type of keys
@@ -81,21 +81,6 @@ public class TarantoolEntry<K, V> {
      * @return true if tuple with given key exists.
      * @throws NullPointerException if a given key is null
      */
-    boolean lock(K key) {
-        if (key == null) {
-            throw new NullPointerException();
-        }
-        tuple = new TarantoolTuple<>(space, key).lock();
-        return tuple != null;
-    }
-
-    /**
-     * Try insert tuple and lock it in one step.
-     *
-     * @param key the key to be locked
-     * @return true if tuple with given key inserted and locked.
-     * @throws NullPointerException if a given key is null
-     */
     boolean tryLock(K key) {
         if (key == null) {
             throw new NullPointerException();
@@ -105,23 +90,27 @@ public class TarantoolEntry<K, V> {
     }
 
     /**
-     * Performs the full update operation (value and expiryTime).
+     * Performs two-phase insert (tryLock + commit).
      *
+     * @param key          the key to be locked
      * @param value        the Value
      * @param creationTime time in milliseconds (since the Epoch)
-     * @throws IllegalStateException if tuple is not locked
+     * @return true if two-phase insert succeeded
+     * @throws NullPointerException if a given key is null
      */
-    boolean commit(V value, long creationTime) {
-        if (tuple == null) {
-            throw new IllegalStateException("Cannot update the tuple, tuple is not locked");
+    boolean tryPush(K key, V value, long creationTime) {
+        if (key == null) {
+            throw new NullPointerException();
         }
-        K key = tuple.getKey();
+        TarantoolTuple<K, V> tuple = new TarantoolTuple<>(space, key);
+        if (!tuple.tryPush()) {
+            return false;
+        }
         long expiryTime = expiryPolicy.getExpiryForCreation(creationTime);
         // check that new entry is not already expired, in which case it should
         // not be added to the cache or listeners called or writers called.
         if (expiryTime > -1 && expiryTime <= creationTime) {
             space.delete(key);
-            unlock();
             return false;
         }
 
@@ -130,22 +119,13 @@ public class TarantoolEntry<K, V> {
                 cacheStore.write(key, value);
             } catch (Exception e) {
                 space.delete(key);
-                unlock();
                 throw e;
             }
         }
 
         tuple.update(value, expiryTime);
         eventHandler.onCreated(key, value, value);
-        unlock();
         return true;
-    }
-
-    /**
-     * Unlock given tuple.
-     */
-    void unlock() {
-        tuple = null;
     }
 
     /**
@@ -158,7 +138,7 @@ public class TarantoolEntry<K, V> {
      */
     boolean isExpiredAt(long now) {
         if (tuple == null) {
-            throw new IllegalStateException("Cannot update the tuple, tuple is not locked");
+            throw new IllegalStateException("Cannot check the tuple, tuple is not locked");
         }
         return tuple.isExpiredAt(now);
     }
@@ -172,7 +152,7 @@ public class TarantoolEntry<K, V> {
      * @return true if newly created value hasn't already expired, false otherwise
      * @throws NullPointerException if a given key is null
      */
-    boolean push(K key, V value, long creationTime) {
+    boolean create(K key, V value, long creationTime) {
         if (key == null) {
             throw new NullPointerException();
         }
@@ -197,9 +177,10 @@ public class TarantoolEntry<K, V> {
      *
      * @param value            the Value
      * @param modificationTime time in milliseconds (since the Epoch)
+     * @return the value before update
      * @throws IllegalStateException if tuple is not locked
      */
-    void update(V value, long modificationTime) {
+    V update(V value, long modificationTime) {
         if (tuple == null) {
             throw new IllegalStateException("Cannot update the tuple, tuple is not locked");
         }
@@ -242,6 +223,7 @@ public class TarantoolEntry<K, V> {
                 eventHandler.onUpdated(key, value, oldValue);
             }
         }
+        return oldValue;
     }
 
     /**
@@ -249,11 +231,12 @@ public class TarantoolEntry<K, V> {
      * Stores fields of the deleted tuple to internal structure.
      * Calls appropriate event.
      *
+     * @return the value before delete
      * @throws IllegalStateException if tuple is not locked
      */
-    void delete() {
+    V delete() {
         if (tuple == null) {
-            throw new IllegalStateException("Cannot delete the tuple, tuple is not locked");
+            throw new IllegalStateException("Cannot delete the tuple");
         }
         if (cacheStore != null) {
             cacheStore.delete(tuple.getKey());
@@ -264,6 +247,7 @@ public class TarantoolEntry<K, V> {
         if (eventHandler != null) {
             eventHandler.onRemoved(oldKey, oldValue, oldValue);
         }
+        return oldValue;
     }
 
     /**
@@ -271,11 +255,12 @@ public class TarantoolEntry<K, V> {
      * Stores fields of the deleted tuple to internal structure.
      * Calls appropriate event.
      *
+     * @return the expired value
      * @throws IllegalStateException if tuple is not locked
      */
-    void expire() {
+    V expire() {
         if (tuple == null) {
-            throw new IllegalStateException("Tuple is not locked");
+            throw new IllegalStateException("Cannot delete the tuple");
         }
         K expiredKey = tuple.getKey();
         V expiredValue = tuple.getValue();
@@ -283,6 +268,7 @@ public class TarantoolEntry<K, V> {
         if (eventHandler != null) {
             eventHandler.onExpired(expiredKey, expiredValue, expiredValue);
         }
+        return expiredValue;
     }
 
     /**
@@ -290,11 +276,12 @@ public class TarantoolEntry<K, V> {
      * If expire for access is undefined - leave untouched.
      *
      * @param accessTime the time when the value was accessed
+     * @return the value corresponding to the accessed tuple
      * @throws IllegalStateException if tuple is not locked
      */
-    void access(long accessTime) {
+    V access(long accessTime) {
         if (tuple == null) {
-            throw new IllegalStateException("Cannot access the tuple, tuple is not locked");
+            throw new IllegalStateException("Cannot access the tuple");
         }
         long expiryTime = expiryPolicy.getExpiryForAccess(accessTime);
         if (expiryTime != -1) {
@@ -307,31 +294,24 @@ public class TarantoolEntry<K, V> {
                 tuple.updateExpiry(expiryTime);
             }
         }
-    }
-
-    /**
-     * Returns the key corresponding to the locked tuple.
-     *
-     * @return the key corresponding to the locked tuple
-     * @throws IllegalStateException if tuple is not locked
-     */
-    public K getKey() {
-        if (tuple == null) {
-            throw new IllegalStateException("Cannot access the tuple, tuple is not locked");
-        }
-        return tuple.getKey();
-    }
-
-    /**
-     * Returns the value corresponding to the locked tuple.
-     *
-     * @return the value corresponding to the locked tuple
-     * @throws IllegalStateException if tuple is not locked
-     */
-    public V getValue() {
-        if (tuple == null) {
-            throw new IllegalStateException("Cannot access the tuple, tuple is not locked");
-        }
         return tuple.getValue();
+    }
+
+    /**
+     * Indicates whether some value is equal to tuple's one.
+     *
+     * @param value the value to match
+     * @return true if a given value is equal to tuple's value
+     * @throws IllegalStateException if tuple is not locked
+     * @throws NullPointerException  if a given value is null
+     */
+    public boolean isMatch(V value) {
+        if (tuple == null) {
+            throw new IllegalStateException("Cannot access the tuple");
+        }
+        if (value == null) {
+            throw new NullPointerException();
+        }
+        return value.equals(tuple.getValue());
     }
 }

@@ -60,12 +60,14 @@ public class TarantoolEntry<K, V> {
      * @param eventHandler {@link TarantoolEventHandler} for create, update, remove, expire events.
      * @param cacheStore   the {@link CacheStore} for the Cache performs write-through operations
      * @throws NullPointerException if a given space is null
+     * @throws NullPointerException if a given expiryPolicy is null
+     * @throws NullPointerException if a given eventHandler is null
      */
     TarantoolEntry(TarantoolSpace<K, V> space,
                    ExpiryTimeConverter expiryPolicy,
                    TarantoolEventHandler<K, V> eventHandler,
                    CacheStore<K, V> cacheStore) {
-        if (space == null) {
+        if (space == null || expiryPolicy == null || eventHandler == null) {
             throw new NullPointerException();
         }
         this.space = space;
@@ -209,9 +211,7 @@ public class TarantoolEntry<K, V> {
                 if (cacheStore != null) {
                     cacheStore.write(key, value);
                 }
-                if (eventHandler != null) {
-                    eventHandler.onUpdated(key, value, oldValue);
-                }
+                eventHandler.onUpdated(key, value, oldValue);
             }
         } else {
             //leave the expiry time untouched when expiryTime is undefined
@@ -219,33 +219,7 @@ public class TarantoolEntry<K, V> {
             if (cacheStore != null) {
                 cacheStore.write(key, value);
             }
-            if (eventHandler != null) {
-                eventHandler.onUpdated(key, value, oldValue);
-            }
-        }
-        return oldValue;
-    }
-
-    /**
-     * Deletes tuple from the Space.
-     * Stores fields of the deleted tuple to internal structure.
-     * Calls appropriate event.
-     *
-     * @return the value before delete
-     * @throws IllegalStateException if tuple is not locked
-     */
-    V delete() {
-        if (tuple == null) {
-            throw new IllegalStateException("Cannot delete the tuple");
-        }
-        if (cacheStore != null) {
-            cacheStore.delete(tuple.getKey());
-        }
-        K oldKey = tuple.getKey();
-        V oldValue = tuple.getValue();
-        space.delete(oldKey);
-        if (eventHandler != null) {
-            eventHandler.onRemoved(oldKey, oldValue, oldValue);
+            eventHandler.onUpdated(key, value, oldValue);
         }
         return oldValue;
     }
@@ -265,9 +239,7 @@ public class TarantoolEntry<K, V> {
         K expiredKey = tuple.getKey();
         V expiredValue = tuple.getValue();
         space.delete(expiredKey);
-        if (eventHandler != null) {
-            eventHandler.onExpired(expiredKey, expiredValue, expiredValue);
-        }
+        eventHandler.onExpired(expiredKey, expiredValue, expiredValue);
         return expiredValue;
     }
 
